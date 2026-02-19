@@ -38,7 +38,29 @@ if [ -f "$TARGET_DJANGO_DIR/fixtures/initial_data.json" ]; then
       | tail -n 1 | tr -d '\r'
   )
   if [ "${CHAPTER_COUNT:-0}" = "0" ]; then
-    run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py loaddata fixtures/initial_data.json
+    if ! run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py loaddata fixtures/initial_data.json; then
+      run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py shell <<'PY'
+from api.models import Chapter, Sentence, Word
+
+if Chapter.objects.count() == 0:
+    ch1 = Chapter.objects.create(title="인사와 일상", accuracy=0.0)
+    ch2 = Chapter.objects.create(title="식당과 음식", accuracy=0.0)
+
+    Word.objects.bulk_create([
+        Word(chapter=ch1, korean_word="안녕하세요", north_korean_word="안녕하십니까", accuracy=0.0),
+        Word(chapter=ch1, korean_word="고마워요", north_korean_word="고맙습니다", accuracy=0.0),
+        Word(chapter=ch2, korean_word="라면", north_korean_word="국수", accuracy=0.0),
+        Word(chapter=ch2, korean_word="후라이팬", north_korean_word="프라이팬", accuracy=0.0),
+    ])
+
+    Sentence.objects.bulk_create([
+        Sentence(chapter=ch1, korean_sentence="안녕하세요, 오늘 날씨가 좋네요.", north_korean_sentence="안녕하십니까, 오늘 날씨가 좋습니다.", accuracy=0.0),
+        Sentence(chapter=ch1, korean_sentence="내일 또 만나요.", north_korean_sentence="내일 또 봅시다.", accuracy=0.0),
+        Sentence(chapter=ch2, korean_sentence="라면을 끓여 주세요.", north_korean_sentence="국수를 끓여 주십시오.", accuracy=0.0),
+        Sentence(chapter=ch2, korean_sentence="후라이팬을 달궈요.", north_korean_sentence="프라이팬을 달굽시다.", accuracy=0.0),
+    ])
+PY
+    fi
   fi
 fi
 
