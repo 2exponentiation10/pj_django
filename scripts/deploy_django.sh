@@ -6,6 +6,8 @@ PROJECT_ROOT="${GITHUB_WORKSPACE:-$(pwd)}"
 TARGET_DJANGO_DIR="$DEPLOY_ROOT/pj_django"
 COMPOSE_FILE="$DEPLOY_ROOT/docker-compose.yml"
 DOCKER_SUDO="${DOCKER_SUDO:-false}"
+TARGET_NGINX_CONF="$DEPLOY_ROOT/nginx/conf.d/default.conf"
+SOURCE_NGINX_CONF="$PROJECT_ROOT/deploy/nginx/https.conf"
 
 run_docker() {
   if [ "$DOCKER_SUDO" = "true" ]; then
@@ -30,3 +32,9 @@ run_docker compose -f "$COMPOSE_FILE" run --rm api python manage.py migrate
 run_docker compose -f "$COMPOSE_FILE" run --rm api python manage.py collectstatic --noinput
 
 run_docker compose -f "$COMPOSE_FILE" restart api
+
+if [ -f "$SOURCE_NGINX_CONF" ]; then
+  mkdir -p "$(dirname "$TARGET_NGINX_CONF")"
+  cp "$SOURCE_NGINX_CONF" "$TARGET_NGINX_CONF"
+  run_docker compose -f "$COMPOSE_FILE" restart nginx
+fi
