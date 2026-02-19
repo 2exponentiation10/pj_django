@@ -29,3 +29,42 @@ class Sentence(models.Model):
 
     def __str__(self):
         return self.korean_sentence
+
+
+class PronunciationAttempt(models.Model):
+    sentence = models.ForeignKey(
+        Sentence,
+        related_name="pronunciation_attempts",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    reference_text = models.TextField()
+    transcript = models.TextField(blank=True, default="")
+
+    score_percent = models.FloatField(default=0.0)
+    text_score = models.FloatField(default=0.0)
+    speed_score = models.FloatField(null=True, blank=True)
+    pitch_score = models.FloatField(null=True, blank=True)
+    pitch_curve_similarity = models.FloatField(null=True, blank=True)
+    volume_curve_similarity = models.FloatField(null=True, blank=True)
+
+    audio_duration_sec = models.FloatField(null=True, blank=True)
+    syllables_per_sec = models.FloatField(null=True, blank=True)
+    pitch_median_hz = models.FloatField(null=True, blank=True)
+    pitch_std_hz = models.FloatField(null=True, blank=True)
+    voiced_frames = models.IntegerField(default=0)
+
+    # Keep compact curves for debug/visualization consistency across retries.
+    user_pitch_curve = models.JSONField(default=list, blank=True)
+    user_volume_curve = models.JSONField(default=list, blank=True)
+    reference_pitch_curve = models.JSONField(default=list, blank=True)
+    reference_volume_curve = models.JSONField(default=list, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Attempt<{self.id}> sentence={self.sentence_id} score={self.score_percent:.2f}"

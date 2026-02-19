@@ -7,17 +7,32 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-import imageio_ffmpeg
-import numpy as np
-from gtts import gTTS
-from pydub import AudioSegment
+try:
+    import imageio_ffmpeg
+except Exception:  # pragma: no cover
+    imageio_ffmpeg = None
+
+try:
+    import numpy as np
+except Exception:  # pragma: no cover
+    np = None
+
+try:
+    from gtts import gTTS
+except Exception:  # pragma: no cover
+    gTTS = None
+
+try:
+    from pydub import AudioSegment
+except Exception:  # pragma: no cover
+    AudioSegment = None
 from django.db.models import Avg
 from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from .models import Chapter, Sentence, Word
+from .models import Chapter, PronunciationAttempt, Sentence, Word
 from .serializers import ChapterSerializer, SentenceSerializer, WordSerializer
 
 
@@ -563,6 +578,8 @@ def _score_speed(syllables_per_sec):
 
 
 def _score_pitch(f0_values):
+    if np is None:
+        return 0.0, None, None
     if len(f0_values) < 6:
         return 0.0, None, None
 
@@ -596,6 +613,12 @@ def _score_pitch(f0_values):
 def _resample_curve(curve, target_points=64):
     if not curve:
         return []
+    if np is None:
+        if len(curve) >= target_points:
+            step = max(1, len(curve) // target_points)
+            return [round(float(curve[i]), 4) for i in range(0, len(curve), step)][:target_points]
+        padded = list(curve) + [curve[-1]] * (target_points - len(curve))
+        return [round(float(v), 4) for v in padded]
     arr = np.array(curve, dtype=np.float32)
     if arr.size == 1:
         return [round(float(arr[0]), 4)] * target_points
@@ -606,6 +629,8 @@ def _resample_curve(curve, target_points=64):
 
 
 def _analyze_pitch_volume(samples, sample_rate):
+    if np is None:
+        return {"pitch_curve": [], "volume_curve": [], "f0_values": []}
     frame_len = int(0.04 * sample_rate)  # 40ms
     hop_len = int(0.01 * sample_rate)    # 10ms
     if frame_len <= 0 or hop_len <= 0 or len(samples) < frame_len:
@@ -673,6 +698,10 @@ def _curve_similarity(curve_a, curve_b):
     n = min(len(curve_a), len(curve_b))
     if n <= 0:
         return None
+    if np is None:
+        diffs = [abs(float(curve_a[i]) - float(curve_b[i])) for i in range(n)]
+        mae = sum(diffs) / n
+        return round(max(0.0, 1.0 - mae), 4)
     a = np.array(curve_a[:n], dtype=np.float32)
     b = np.array(curve_b[:n], dtype=np.float32)
     mae = float(np.mean(np.abs(a - b)))
@@ -680,6 +709,8 @@ def _curve_similarity(curve_a, curve_b):
 
 
 def _synthesize_reference_tts(text):
+    if gTTS is None:
+        raise RuntimeError("gTTS is not installed")
     buf = io.BytesIO()
     tts = gTTS(text=text, lang="ko", slow=False)
     tts.write_to_fp(buf)
@@ -687,6 +718,8 @@ def _synthesize_reference_tts(text):
 
 
 def _extract_audio_metrics(audio_bytes, mime_type, transcript):
+    if AudioSegment is None or imageio_ffmpeg is None or np is None:
+        raise RuntimeError("audio metric dependencies are not installed")
     format_hint = None
     if "/" in (mime_type or ""):
         format_hint = mime_type.split("/", 1)[1].split(";")[0].strip().lower()
@@ -935,16 +968,60 @@ def evaluate_pronunciation(request):
 
     feedback = _build_pronunciation_feedback(score_percent, reference_text, transcript)
 
+    sentence = None
     if sentence_id:
         try:
             sentence = Sentence.objects.get(pk=sentence_id)
-            sentence.accuracy = accuracy_ratio
+            # Keep the best score for stability across repeated retries.
+            sentence.accuracy = max(float(sentence.accuracy or 0.0), float(accuracy_ratio))
             sentence.save(update_fields=["accuracy"])
         except Sentence.DoesNotExist:
             return Response(
                 {"detail": "Sentence not found.", "transcript": transcript},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+    attempt = PronunciationAttempt.objects.create(
+        sentence=sentence,
+        reference_text=reference_text,
+        transcript=transcript,
+        score_percent=score_percent,
+        text_score=round(text_score, 4),
+        speed_score=(round(audio_metrics["speed_score"], 4) if audio_metrics else None),
+        pitch_score=(round(audio_metrics["pitch_score"], 4) if audio_metrics else None),
+        pitch_curve_similarity=pitch_curve_similarity,
+        volume_curve_similarity=volume_curve_similarity,
+        audio_duration_sec=(audio_metrics["duration_sec"] if audio_metrics else None),
+        syllables_per_sec=(audio_metrics["syllables_per_sec"] if audio_metrics else None),
+        pitch_median_hz=(audio_metrics["pitch_median_hz"] if audio_metrics else None),
+        pitch_std_hz=(audio_metrics["pitch_std_hz"] if audio_metrics else None),
+        voiced_frames=(audio_metrics["voiced_frames"] if audio_metrics else 0),
+        user_pitch_curve=(audio_metrics["pitch_curve"] if audio_metrics else []),
+        user_volume_curve=(audio_metrics["volume_curve"] if audio_metrics else []),
+        reference_pitch_curve=(
+            reference_audio_metrics["pitch_curve"] if reference_audio_metrics else []
+        ),
+        reference_volume_curve=(
+            reference_audio_metrics["volume_curve"] if reference_audio_metrics else []
+        ),
+    )
+
+    sentence_attempts_count = (
+        PronunciationAttempt.objects.filter(sentence_id=sentence.id).count() if sentence else None
+    )
+    sentence_best_score = (
+        round(float(sentence.accuracy or 0.0) * 100.0, 2) if sentence else None
+    )
+
+    pitch_verdict = None
+    if audio_metrics:
+        pscore = float(audio_metrics["pitch_score"] or 0.0)
+        if pscore >= 0.8:
+            pitch_verdict = "stable"
+        elif pscore >= 0.55:
+            pitch_verdict = "moderate"
+        else:
+            pitch_verdict = "unstable"
 
     return Response(
         {
@@ -971,9 +1048,26 @@ def evaluate_pronunciation(request):
             ),
             "pitch_curve_similarity": pitch_curve_similarity,
             "volume_curve_similarity": volume_curve_similarity,
+            "pitch_verdict": pitch_verdict,
+            "attempt_id": attempt.id,
+            "sentence_attempts_count": sentence_attempts_count,
+            "sentence_best_score": sentence_best_score,
             "feedback": feedback,
             "model": speech_model,
             "score_level": _score_level(score_percent),
             "score_rule": score_rule,
         }
     )
+
+
+@api_view(["POST"])
+def reset_sentence_pronunciation(request, sentence_id):
+    try:
+        sentence = Sentence.objects.get(pk=sentence_id)
+    except Sentence.DoesNotExist:
+        return Response({"detail": "Sentence not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    deleted, _ = PronunciationAttempt.objects.filter(sentence_id=sentence_id).delete()
+    sentence.accuracy = 0.0
+    sentence.save(update_fields=["accuracy"])
+    return Response({"status": "ok", "deleted_attempts": deleted, "sentence_id": sentence.id})

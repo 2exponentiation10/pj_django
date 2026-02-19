@@ -15,6 +15,7 @@ from .views import (
     get_saved_words,
     mark_sentence_as_called,
     mark_word_as_called,
+    reset_sentence_pronunciation,
     update_sentence,
     update_sentence_accuracy,
     update_sentence_accuracy_and_text,
@@ -57,6 +58,11 @@ urlpatterns = [
     path("sentences/<int:sentence_id>/update/", update_sentence, name="sentence-update"),
     path("words/<int:word_id>/mark_called/", mark_word_as_called, name="word-mark-called"),
     path("sentences/<int:sentence_id>/mark_called/", mark_sentence_as_called, name="sentence-mark-called"),
+    path(
+        "sentences/<int:sentence_id>/reset_pronunciation/",
+        reset_sentence_pronunciation,
+        name="sentence-reset-pronunciation",
+    ),
     path("sentences/<int:sentence_id>/update_accuracy/", update_sentence_accuracy, name="sentence-update-accuracy"),
     path(
         "sentences/<int:sentence_id>/update_accuracy_and_text/",
