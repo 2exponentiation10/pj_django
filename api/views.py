@@ -300,6 +300,53 @@ def _fallback_chat_reply(user_message):
     )
 
 
+def _chat_with_openai(user_message):
+    openai_api_key = getattr(settings, "OPENAI_API_KEY", "")
+    if not openai_api_key:
+        raise ValueError("OPENAI_API_KEY is not configured.")
+
+    openai_model = getattr(settings, "OPENAI_MODEL", "gpt-4o-mini")
+    endpoint = "https://api.openai.com/v1/chat/completions"
+    payload = {
+        "model": openai_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert in North and South Korean languages. "
+                    "Answer in Korean unless explicitly asked otherwise."
+                ),
+            },
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": 0.4,
+    }
+
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json; charset=UTF-8",
+            "Authorization": f"Bearer {openai_api_key}",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        raw = resp.read().decode("utf-8")
+
+    data = json.loads(raw)
+    choices = data.get("choices", [])
+    if not choices:
+        raise ValueError("OpenAI returned no choices.")
+
+    message = choices[0].get("message", {})
+    answer = (message.get("content") or "").strip()
+    if not answer:
+        raise ValueError("OpenAI returned empty content.")
+    return answer
+
+
 @api_view(["POST"])
 def chat_with_gemini(request):
     user_message = (request.data.get("message") or "").strip()
@@ -310,11 +357,21 @@ def chat_with_gemini(request):
         )
 
     gemini_api_key = getattr(settings, "GEMINI_API_KEY", "")
-    if not gemini_api_key:
+    openai_api_key = getattr(settings, "OPENAI_API_KEY", "")
+    if not gemini_api_key and not openai_api_key:
         return Response(
-            {"detail": "GEMINI_API_KEY is not configured on server."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
+            status=status.HTTP_200_OK,
         )
+    if not gemini_api_key and openai_api_key:
+        try:
+            answer = _chat_with_openai(user_message)
+            return Response({"reply": answer, "fallback": True, "provider": "openai"})
+        except Exception:
+            return Response(
+                {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
+                status=status.HTTP_200_OK,
+            )
 
     gemini_model = getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash")
     endpoint = (
@@ -350,9 +407,18 @@ def chat_with_gemini(request):
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
+        if (exc.code in (429, 500, 502, 503, 504) or "RESOURCE_EXHAUSTED" in detail) and openai_api_key:
+            try:
+                answer = _chat_with_openai(user_message)
+                return Response({"reply": answer, "fallback": True, "provider": "openai"})
+            except Exception:
+                return Response(
+                    {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
+                    status=status.HTTP_200_OK,
+                )
         if exc.code == 429 or "RESOURCE_EXHAUSTED" in detail:
             return Response(
-                {"reply": _fallback_chat_reply(user_message), "fallback": True},
+                {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
                 status=status.HTTP_200_OK,
             )
         return Response(
@@ -360,6 +426,15 @@ def chat_with_gemini(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
     except Exception as exc:  # pragma: no cover - network path
+        if openai_api_key:
+            try:
+                answer = _chat_with_openai(user_message)
+                return Response({"reply": answer, "fallback": True, "provider": "openai"})
+            except Exception:
+                return Response(
+                    {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
+                    status=status.HTTP_200_OK,
+                )
         return Response(
             {"detail": "Gemini request error.", "error": str(exc)},
             status=status.HTTP_502_BAD_GATEWAY,
