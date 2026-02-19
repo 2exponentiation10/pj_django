@@ -531,6 +531,16 @@ def _build_pronunciation_feedback(score_percent, reference_text, transcript):
     return f"{level} 놓친 단어 후보: {missing_hint}"
 
 
+def _score_level(score_percent):
+    if score_percent >= 90:
+        return "excellent"
+    if score_percent >= 75:
+        return "good"
+    if score_percent >= 55:
+        return "fair"
+    return "needs_improvement"
+
+
 def _transcribe_with_gemini(audio_bytes, mime_type, model_name, api_key):
     endpoint = (
         f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
@@ -668,5 +678,16 @@ def evaluate_pronunciation(request):
             "token_similarity": round(token_similarity, 4),
             "feedback": feedback,
             "model": speech_model,
+            "score_level": _score_level(score_percent),
+            "score_rule": {
+                "char_similarity_weight": 0.75,
+                "token_similarity_weight": 0.25,
+                "bands": {
+                    "excellent": ">= 90",
+                    "good": ">= 75",
+                    "fair": ">= 55",
+                    "needs_improvement": "< 55",
+                },
+            },
         }
     )
