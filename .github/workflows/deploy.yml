@@ -51,8 +51,8 @@ jobs:
           CORS_ALLOW_ALL_ORIGINS=False
           CORS_ALLOWED_ORIGINS=https://satoori.protfolio.store
           GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL=gemini-2.0-flash-lite
-          GEMINI_SPEECH_MODEL=gemini-2.0-flash-lite
+          GEMINI_MODEL=gemini-2.5-flash-lite
+          GEMINI_SPEECH_MODEL=gemini-2.5-flash-lite
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL=gpt-4o-mini
           OPENAI_FALLBACK_ENABLED=False
