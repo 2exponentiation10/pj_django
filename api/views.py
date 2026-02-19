@@ -1,10 +1,15 @@
 import json
 import base64
+import io
+import math
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
 
+import imageio_ffmpeg
+import numpy as np
+from pydub import AudioSegment
 from django.db.models import Avg
 from django.conf import settings
 from rest_framework import status, viewsets
@@ -541,6 +546,139 @@ def _score_level(score_percent):
     return "needs_improvement"
 
 
+def _count_korean_syllables(text):
+    return len(re.findall(r"[가-힣]", text or ""))
+
+
+def _score_speed(syllables_per_sec):
+    # Comfortable Korean speaking rate is roughly around 4~5.5 syllables/sec.
+    if syllables_per_sec <= 0:
+        return 0.0
+    target = 4.7
+    tolerance = 2.0
+    distance = abs(syllables_per_sec - target)
+    score = max(0.0, 1.0 - (distance / tolerance))
+    return round(score, 4)
+
+
+def _score_pitch(f0_values):
+    if len(f0_values) < 6:
+        return 0.0, None, None
+
+    median_f0 = float(np.median(f0_values))
+    std_f0 = float(np.std(f0_values))
+
+    # Median range score: prefer 95~260 Hz range for Korean adult speech.
+    if median_f0 < 75 or median_f0 > 320:
+        median_score = 0.0
+    elif 95 <= median_f0 <= 260:
+        median_score = 1.0
+    elif median_f0 < 95:
+        median_score = (median_f0 - 75) / 20.0
+    else:
+        median_score = (320 - median_f0) / 60.0
+
+    # Variation score: too flat(<12Hz) or too unstable(>120Hz) gets penalty.
+    if std_f0 < 12:
+        var_score = std_f0 / 12.0
+    elif std_f0 <= 90:
+        var_score = 1.0
+    elif std_f0 >= 140:
+        var_score = 0.0
+    else:
+        var_score = (140 - std_f0) / 50.0
+
+    pitch_score = max(0.0, min(1.0, 0.6 * median_score + 0.4 * var_score))
+    return round(pitch_score, 4), round(median_f0, 2), round(std_f0, 2)
+
+
+def _estimate_f0_values(samples, sample_rate):
+    frame_len = int(0.04 * sample_rate)  # 40ms
+    hop_len = int(0.01 * sample_rate)    # 10ms
+    if frame_len <= 0 or hop_len <= 0 or len(samples) < frame_len:
+        return []
+
+    min_hz = 75.0
+    max_hz = 350.0
+    min_lag = max(1, int(sample_rate / max_hz))
+    max_lag = max(min_lag + 1, int(sample_rate / min_hz))
+
+    f0_values = []
+    for start in range(0, len(samples) - frame_len + 1, hop_len):
+        frame = samples[start : start + frame_len]
+        rms = math.sqrt(float(np.mean(frame * frame)) + 1e-12)
+        if rms < 0.01:
+            continue
+
+        frame = frame - np.mean(frame)
+        autocorr = np.correlate(frame, frame, mode="full")[frame_len - 1 :]
+        if max_lag >= len(autocorr):
+            continue
+
+        search = autocorr[min_lag:max_lag]
+        if search.size == 0:
+            continue
+        lag_offset = int(np.argmax(search))
+        lag = min_lag + lag_offset
+        peak = float(search[lag_offset])
+        if peak <= 0:
+            continue
+
+        f0 = sample_rate / lag
+        if min_hz <= f0 <= max_hz:
+            f0_values.append(float(f0))
+    return f0_values
+
+
+def _extract_audio_metrics(audio_bytes, mime_type, transcript):
+    format_hint = None
+    if "/" in (mime_type or ""):
+        format_hint = mime_type.split("/", 1)[1].split(";")[0].strip().lower()
+    format_map = {
+        "mpeg": "mp3",
+        "x-wav": "wav",
+        "mp4": "m4a",
+        "webm": "webm",
+        "ogg": "ogg",
+    }
+    format_hint = format_map.get(format_hint, format_hint)
+
+    AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
+    segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format=format_hint)
+    if len(segment) <= 0:
+        raise ValueError("Empty decoded audio")
+
+    segment = segment.set_channels(1).set_frame_rate(16000)
+    duration_sec = len(segment) / 1000.0
+    if duration_sec <= 0:
+        raise ValueError("Invalid audio duration")
+
+    raw = segment.get_array_of_samples()
+    samples = np.array(raw).astype(np.float32)
+    max_val = float(1 << (8 * segment.sample_width - 1))
+    if max_val <= 0:
+        raise ValueError("Invalid sample width")
+    samples = samples / max_val
+
+    syllables = _count_korean_syllables(transcript)
+    syllables_per_sec = syllables / max(duration_sec, 1e-6)
+    speed_score = _score_speed(syllables_per_sec)
+
+    f0_values = _estimate_f0_values(samples, segment.frame_rate)
+    pitch_score, pitch_median_hz, pitch_std_hz = _score_pitch(f0_values)
+
+    return {
+        "duration_sec": round(duration_sec, 3),
+        "korean_syllables": syllables,
+        "syllables_per_sec": round(syllables_per_sec, 3),
+        "speed_score": speed_score,
+        "pitch_score": pitch_score,
+        "pitch_median_hz": pitch_median_hz,
+        "pitch_std_hz": pitch_std_hz,
+        "voiced_frames": len(f0_values),
+    }
+
+
 def _transcribe_with_gemini(audio_bytes, mime_type, model_name, api_key):
     endpoint = (
         f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
@@ -614,6 +752,8 @@ def evaluate_pronunciation(request):
     )
 
     transcript = (request.data.get("recognized_text") or "").strip()
+    audio_bytes = None
+    mime_type = None
 
     audio_file = request.FILES.get("audio")
     if not transcript and not audio_file:
@@ -643,6 +783,9 @@ def evaluate_pronunciation(request):
                 {"detail": "Transcription error.", "error": str(exc)},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+    elif audio_file:
+        mime_type = audio_file.content_type or "audio/webm"
+        audio_bytes = audio_file.read()
 
     ref_norm = _normalize_text(reference_text)
     hyp_norm = _normalize_text(transcript)
@@ -651,8 +794,60 @@ def evaluate_pronunciation(request):
     char_similarity = max(0.0, 1.0 - (distance / max_len))
     token_similarity = _token_recall(reference_text, transcript)
 
-    # Weighted score for pronunciation proxy (0~1).
-    accuracy_ratio = (0.75 * char_similarity) + (0.25 * token_similarity)
+    # Text similarity score (0~1).
+    text_score = (0.75 * char_similarity) + (0.25 * token_similarity)
+    text_score = max(0.0, min(1.0, text_score))
+
+    audio_metrics = None
+    if audio_bytes:
+        try:
+            audio_metrics = _extract_audio_metrics(audio_bytes, mime_type, transcript)
+        except Exception:
+            audio_metrics = None
+
+    if audio_metrics:
+        text_weight = 0.60
+        speed_weight = 0.20
+        pitch_weight = 0.20
+        accuracy_ratio = (
+            text_weight * text_score
+            + speed_weight * audio_metrics["speed_score"]
+            + pitch_weight * audio_metrics["pitch_score"]
+        )
+        score_rule = {
+            "text_weight": text_weight,
+            "speed_weight": speed_weight,
+            "pitch_weight": pitch_weight,
+            "text_subweights": {
+                "char_similarity_weight": 0.75,
+                "token_similarity_weight": 0.25,
+            },
+            "bands": {
+                "excellent": ">= 90",
+                "good": ">= 75",
+                "fair": ">= 55",
+                "needs_improvement": "< 55",
+            },
+        }
+    else:
+        accuracy_ratio = text_score
+        score_rule = {
+            "text_weight": 1.0,
+            "speed_weight": 0.0,
+            "pitch_weight": 0.0,
+            "text_subweights": {
+                "char_similarity_weight": 0.75,
+                "token_similarity_weight": 0.25,
+            },
+            "bands": {
+                "excellent": ">= 90",
+                "good": ">= 75",
+                "fair": ">= 55",
+                "needs_improvement": "< 55",
+            },
+            "note": "audio metrics unavailable; text-only scoring",
+        }
+
     accuracy_ratio = max(0.0, min(1.0, accuracy_ratio))
     score_percent = round(accuracy_ratio * 100.0, 2)
 
@@ -676,18 +871,17 @@ def evaluate_pronunciation(request):
             "score_percent": score_percent,
             "char_similarity": round(char_similarity, 4),
             "token_similarity": round(token_similarity, 4),
+            "text_score": round(text_score, 4),
+            "audio_metrics_available": bool(audio_metrics),
+            "speed_score": round(audio_metrics["speed_score"], 4) if audio_metrics else None,
+            "pitch_score": round(audio_metrics["pitch_score"], 4) if audio_metrics else None,
+            "audio_duration_sec": audio_metrics["duration_sec"] if audio_metrics else None,
+            "syllables_per_sec": audio_metrics["syllables_per_sec"] if audio_metrics else None,
+            "pitch_median_hz": audio_metrics["pitch_median_hz"] if audio_metrics else None,
+            "pitch_std_hz": audio_metrics["pitch_std_hz"] if audio_metrics else None,
             "feedback": feedback,
             "model": speech_model,
             "score_level": _score_level(score_percent),
-            "score_rule": {
-                "char_similarity_weight": 0.75,
-                "token_similarity_weight": 0.25,
-                "bands": {
-                    "excellent": ">= 90",
-                    "good": ">= 75",
-                    "fair": ">= 55",
-                    "needs_improvement": "< 55",
-                },
-            },
+            "score_rule": score_rule,
         }
     )
