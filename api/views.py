@@ -273,6 +273,33 @@ def get_chapter_evaluation_results(request, chapter_id):
     return Response(serializer.data)
 
 
+def _fallback_chat_reply(user_message):
+    prompt = user_message.strip()
+    if not prompt:
+        return "질문을 입력해 주세요."
+
+    if "인사" in prompt:
+        return (
+            "남한은 보통 '안녕하세요'를, 북한은 '안녕하십니까'를 자주 씁니다. "
+            "격식과 상황에 따라 둘 다 의미는 같지만 어감 차이가 있습니다."
+        )
+    if "음식" in prompt or "요리" in prompt:
+        return (
+            "음식 관련 어휘는 지역별 차이가 큽니다. 예를 들어 남한 '라면'은 "
+            "북한에서 '국수'로 표현되는 경우가 있습니다."
+        )
+    if "발음" in prompt or "억양" in prompt:
+        return (
+            "발음 비교는 문장 단위로 하는 게 가장 정확합니다. 짧은 문장을 2~3번 반복해 "
+            "강세와 길이를 맞추는 방식으로 연습해 보세요."
+        )
+
+    return (
+        "현재 AI 실시간 응답 한도를 초과해 기본 답변으로 안내 중입니다. "
+        "질문을 더 구체적으로 주시면 남북한 어휘/표현 차이를 예시 중심으로 정리해 드릴게요."
+    )
+
+
 @api_view(["POST"])
 def chat_with_gemini(request):
     user_message = (request.data.get("message") or "").strip()
@@ -323,6 +350,11 @@ def chat_with_gemini(request):
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
+        if exc.code == 429 or "RESOURCE_EXHAUSTED" in detail:
+            return Response(
+                {"reply": _fallback_chat_reply(user_message), "fallback": True},
+                status=status.HTTP_200_OK,
+            )
         return Response(
             {"detail": "Gemini API request failed.", "error": detail},
             status=status.HTTP_502_BAD_GATEWAY,
