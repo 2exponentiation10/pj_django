@@ -9,6 +9,7 @@ import urllib.request
 
 import imageio_ffmpeg
 import numpy as np
+from gtts import gTTS
 from pydub import AudioSegment
 from django.db.models import Avg
 from django.conf import settings
@@ -592,11 +593,27 @@ def _score_pitch(f0_values):
     return round(pitch_score, 4), round(median_f0, 2), round(std_f0, 2)
 
 
-def _estimate_f0_values(samples, sample_rate):
+def _resample_curve(curve, target_points=64):
+    if not curve:
+        return []
+    arr = np.array(curve, dtype=np.float32)
+    if arr.size == 1:
+        return [round(float(arr[0]), 4)] * target_points
+    x_old = np.linspace(0.0, 1.0, num=arr.size)
+    x_new = np.linspace(0.0, 1.0, num=target_points)
+    out = np.interp(x_new, x_old, arr)
+    return [round(float(v), 4) for v in out]
+
+
+def _analyze_pitch_volume(samples, sample_rate):
     frame_len = int(0.04 * sample_rate)  # 40ms
     hop_len = int(0.01 * sample_rate)    # 10ms
     if frame_len <= 0 or hop_len <= 0 or len(samples) < frame_len:
-        return []
+        return {
+            "pitch_curve": [],
+            "volume_curve": [],
+            "f0_values": [],
+        }
 
     min_hz = 75.0
     max_hz = 350.0
@@ -604,30 +621,69 @@ def _estimate_f0_values(samples, sample_rate):
     max_lag = max(min_lag + 1, int(sample_rate / min_hz))
 
     f0_values = []
+    pitch_curve = []
+    volume_curve = []
     for start in range(0, len(samples) - frame_len + 1, hop_len):
         frame = samples[start : start + frame_len]
         rms = math.sqrt(float(np.mean(frame * frame)) + 1e-12)
-        if rms < 0.01:
+        volume_curve.append(rms)
+
+        if rms < 0.008:
+            pitch_curve.append(0.0)
             continue
 
         frame = frame - np.mean(frame)
         autocorr = np.correlate(frame, frame, mode="full")[frame_len - 1 :]
         if max_lag >= len(autocorr):
+            pitch_curve.append(0.0)
             continue
 
         search = autocorr[min_lag:max_lag]
         if search.size == 0:
+            pitch_curve.append(0.0)
             continue
         lag_offset = int(np.argmax(search))
         lag = min_lag + lag_offset
         peak = float(search[lag_offset])
         if peak <= 0:
+            pitch_curve.append(0.0)
             continue
 
         f0 = sample_rate / lag
         if min_hz <= f0 <= max_hz:
             f0_values.append(float(f0))
-    return f0_values
+            pitch_curve.append((f0 - min_hz) / (max_hz - min_hz))
+        else:
+            pitch_curve.append(0.0)
+
+    if volume_curve:
+        vmax = max(volume_curve) or 1e-6
+        volume_curve = [min(1.0, float(v / vmax)) for v in volume_curve]
+
+    return {
+        "pitch_curve": _resample_curve(pitch_curve, target_points=64),
+        "volume_curve": _resample_curve(volume_curve, target_points=64),
+        "f0_values": f0_values,
+    }
+
+
+def _curve_similarity(curve_a, curve_b):
+    if not curve_a or not curve_b:
+        return None
+    n = min(len(curve_a), len(curve_b))
+    if n <= 0:
+        return None
+    a = np.array(curve_a[:n], dtype=np.float32)
+    b = np.array(curve_b[:n], dtype=np.float32)
+    mae = float(np.mean(np.abs(a - b)))
+    return round(max(0.0, 1.0 - mae), 4)
+
+
+def _synthesize_reference_tts(text):
+    buf = io.BytesIO()
+    tts = gTTS(text=text, lang="ko", slow=False)
+    tts.write_to_fp(buf)
+    return buf.getvalue()
 
 
 def _extract_audio_metrics(audio_bytes, mime_type, transcript):
@@ -664,7 +720,8 @@ def _extract_audio_metrics(audio_bytes, mime_type, transcript):
     syllables_per_sec = syllables / max(duration_sec, 1e-6)
     speed_score = _score_speed(syllables_per_sec)
 
-    f0_values = _estimate_f0_values(samples, segment.frame_rate)
+    analysis = _analyze_pitch_volume(samples, segment.frame_rate)
+    f0_values = analysis["f0_values"]
     pitch_score, pitch_median_hz, pitch_std_hz = _score_pitch(f0_values)
 
     return {
@@ -676,6 +733,8 @@ def _extract_audio_metrics(audio_bytes, mime_type, transcript):
         "pitch_median_hz": pitch_median_hz,
         "pitch_std_hz": pitch_std_hz,
         "voiced_frames": len(f0_values),
+        "pitch_curve": analysis["pitch_curve"],
+        "volume_curve": analysis["volume_curve"],
     }
 
 
@@ -799,11 +858,34 @@ def evaluate_pronunciation(request):
     text_score = max(0.0, min(1.0, text_score))
 
     audio_metrics = None
+    reference_audio_metrics = None
+    pitch_curve_similarity = None
+    volume_curve_similarity = None
     if audio_bytes:
         try:
             audio_metrics = _extract_audio_metrics(audio_bytes, mime_type, transcript)
         except Exception:
             audio_metrics = None
+        if audio_metrics:
+            try:
+                ref_audio_bytes = _synthesize_reference_tts(reference_text)
+                reference_audio_metrics = _extract_audio_metrics(
+                    ref_audio_bytes,
+                    "audio/mpeg",
+                    reference_text,
+                )
+                pitch_curve_similarity = _curve_similarity(
+                    audio_metrics["pitch_curve"],
+                    reference_audio_metrics["pitch_curve"],
+                )
+                volume_curve_similarity = _curve_similarity(
+                    audio_metrics["volume_curve"],
+                    reference_audio_metrics["volume_curve"],
+                )
+            except Exception:
+                reference_audio_metrics = None
+                pitch_curve_similarity = None
+                volume_curve_similarity = None
 
     if audio_metrics:
         text_weight = 0.60
@@ -879,6 +961,16 @@ def evaluate_pronunciation(request):
             "syllables_per_sec": audio_metrics["syllables_per_sec"] if audio_metrics else None,
             "pitch_median_hz": audio_metrics["pitch_median_hz"] if audio_metrics else None,
             "pitch_std_hz": audio_metrics["pitch_std_hz"] if audio_metrics else None,
+            "user_pitch_curve": audio_metrics["pitch_curve"] if audio_metrics else [],
+            "user_volume_curve": audio_metrics["volume_curve"] if audio_metrics else [],
+            "reference_pitch_curve": (
+                reference_audio_metrics["pitch_curve"] if reference_audio_metrics else []
+            ),
+            "reference_volume_curve": (
+                reference_audio_metrics["volume_curve"] if reference_audio_metrics else []
+            ),
+            "pitch_curve_similarity": pitch_curve_similarity,
+            "volume_curve_similarity": volume_curve_similarity,
             "feedback": feedback,
             "model": speech_model,
             "score_level": _score_level(score_percent),
