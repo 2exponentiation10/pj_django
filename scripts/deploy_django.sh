@@ -31,6 +31,17 @@ run_docker compose -f "$COMPOSE_FILE" up -d --build api
 run_docker compose -f "$COMPOSE_FILE" run --rm api python manage.py migrate
 run_docker compose -f "$COMPOSE_FILE" run --rm api python manage.py collectstatic --noinput
 
+if [ -f "$TARGET_DJANGO_DIR/fixtures/initial_data.json" ]; then
+  CHAPTER_COUNT=$(
+    run_docker compose -f "$COMPOSE_FILE" run --rm api \
+      python manage.py shell -c "from api.models import Chapter; print(Chapter.objects.count())" \
+      | tail -n 1 | tr -d '\r'
+  )
+  if [ "${CHAPTER_COUNT:-0}" = "0" ]; then
+    run_docker compose -f "$COMPOSE_FILE" run --rm api python manage.py loaddata fixtures/initial_data.json
+  fi
+fi
+
 run_docker compose -f "$COMPOSE_FILE" restart api
 
 if [ -f "$SOURCE_NGINX_CONF" ]; then
