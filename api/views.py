@@ -562,18 +562,14 @@ def _score_level(score_percent):
     return "needs_improvement"
 
 
-def _count_korean_syllables(text):
-    return len(re.findall(r"[가-힣]", text or ""))
-
-
-def _score_speed(syllables_per_sec):
-    # Comfortable Korean speaking rate is roughly around 4~5.5 syllables/sec.
-    if syllables_per_sec <= 0:
+def _score_speed_by_duration(user_duration_sec, reference_duration_sec):
+    if user_duration_sec <= 0 or reference_duration_sec <= 0:
         return 0.0
-    target = 4.7
-    tolerance = 2.0
-    distance = abs(syllables_per_sec - target)
-    score = max(0.0, 1.0 - (distance / tolerance))
+    ratio = user_duration_sec / reference_duration_sec
+    # Ratio 1.0 is ideal. 0.6~1.5 still acceptable with gradual penalty.
+    if ratio < 0.6 or ratio > 1.8:
+        return 0.0
+    score = max(0.0, 1.0 - abs(ratio - 1.0) / 0.5)
     return round(score, 4)
 
 
@@ -717,7 +713,30 @@ def _synthesize_reference_tts(text):
     return buf.getvalue()
 
 
-def _extract_audio_metrics(audio_bytes, mime_type, transcript):
+def _build_audio_feedback(score_percent, speed_score, pitch_score, volume_score):
+    if score_percent >= 90:
+        level = "매우 우수합니다."
+    elif score_percent >= 75:
+        level = "좋습니다."
+    elif score_percent >= 55:
+        level = "보통입니다."
+    else:
+        level = "개선이 필요합니다."
+
+    tips = []
+    if (speed_score or 0.0) < 0.6:
+        tips.append("말하기 속도를 기준 발음과 비슷하게 맞춰 보세요.")
+    if (pitch_score or 0.0) < 0.6:
+        tips.append("억양의 높낮이 변화를 조금 더 살려 보세요.")
+    if (volume_score or 0.0) < 0.6:
+        tips.append("문장 전체에서 음량을 더 안정적으로 유지해 보세요.")
+    if not tips:
+        tips.append("현재 속도/피치/음량 균형이 안정적입니다.")
+
+    return f"{level} " + " ".join(tips)
+
+
+def _extract_audio_metrics(audio_bytes, mime_type):
     if AudioSegment is None or imageio_ffmpeg is None or np is None:
         raise RuntimeError("audio metric dependencies are not installed")
     format_hint = None
@@ -749,19 +768,12 @@ def _extract_audio_metrics(audio_bytes, mime_type, transcript):
         raise ValueError("Invalid sample width")
     samples = samples / max_val
 
-    syllables = _count_korean_syllables(transcript)
-    syllables_per_sec = syllables / max(duration_sec, 1e-6)
-    speed_score = _score_speed(syllables_per_sec)
-
     analysis = _analyze_pitch_volume(samples, segment.frame_rate)
     f0_values = analysis["f0_values"]
     pitch_score, pitch_median_hz, pitch_std_hz = _score_pitch(f0_values)
 
     return {
         "duration_sec": round(duration_sec, 3),
-        "korean_syllables": syllables,
-        "syllables_per_sec": round(syllables_per_sec, 3),
-        "speed_score": speed_score,
         "pitch_score": pitch_score,
         "pitch_median_hz": pitch_median_hz,
         "pitch_std_hz": pitch_std_hz,
@@ -832,141 +844,86 @@ def evaluate_pronunciation(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    gemini_api_key = getattr(settings, "GEMINI_API_KEY", "")
-    if not gemini_api_key:
-        return Response(
-            {"detail": "GEMINI_API_KEY is not configured on server."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    speech_model = getattr(settings, "GEMINI_SPEECH_MODEL", "") or getattr(
-        settings, "GEMINI_MODEL", "gemini-2.0-flash"
-    )
-
-    transcript = (request.data.get("recognized_text") or "").strip()
-    audio_bytes = None
-    mime_type = None
+    speech_model = "audio-direct-v1"
 
     audio_file = request.FILES.get("audio")
-    if not transcript and not audio_file:
+    if not audio_file:
         return Response(
-            {"detail": "Either audio file or recognized_text is required."},
+            {"detail": "audio file is required for pronunciation evaluation."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if not transcript and audio_file:
-        mime_type = audio_file.content_type or "audio/webm"
-        audio_bytes = audio_file.read()
-        if not audio_bytes:
-            return Response(
-                {"detail": "Uploaded audio is empty."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            transcript = _transcribe_with_gemini(audio_bytes, mime_type, speech_model, gemini_api_key)
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="ignore")
-            return Response(
-                {"detail": "Gemini transcription failed.", "error": detail},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        except Exception as exc:  # pragma: no cover - network path
-            return Response(
-                {"detail": "Transcription error.", "error": str(exc)},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-    elif audio_file:
-        mime_type = audio_file.content_type or "audio/webm"
-        audio_bytes = audio_file.read()
-
-    ref_norm = _normalize_text(reference_text)
-    hyp_norm = _normalize_text(transcript)
-    max_len = max(len(ref_norm), len(hyp_norm), 1)
-    distance = _levenshtein_distance(ref_norm, hyp_norm)
-    char_similarity = max(0.0, 1.0 - (distance / max_len))
-    token_similarity = _token_recall(reference_text, transcript)
-
-    # Text similarity score (0~1).
-    text_score = (0.75 * char_similarity) + (0.25 * token_similarity)
-    text_score = max(0.0, min(1.0, text_score))
-
-    audio_metrics = None
-    reference_audio_metrics = None
-    pitch_curve_similarity = None
-    volume_curve_similarity = None
-    if audio_bytes:
-        try:
-            audio_metrics = _extract_audio_metrics(audio_bytes, mime_type, transcript)
-        except Exception:
-            audio_metrics = None
-        if audio_metrics:
-            try:
-                ref_audio_bytes = _synthesize_reference_tts(reference_text)
-                reference_audio_metrics = _extract_audio_metrics(
-                    ref_audio_bytes,
-                    "audio/mpeg",
-                    reference_text,
-                )
-                pitch_curve_similarity = _curve_similarity(
-                    audio_metrics["pitch_curve"],
-                    reference_audio_metrics["pitch_curve"],
-                )
-                volume_curve_similarity = _curve_similarity(
-                    audio_metrics["volume_curve"],
-                    reference_audio_metrics["volume_curve"],
-                )
-            except Exception:
-                reference_audio_metrics = None
-                pitch_curve_similarity = None
-                volume_curve_similarity = None
-
-    if audio_metrics:
-        text_weight = 0.60
-        speed_weight = 0.20
-        pitch_weight = 0.20
-        accuracy_ratio = (
-            text_weight * text_score
-            + speed_weight * audio_metrics["speed_score"]
-            + pitch_weight * audio_metrics["pitch_score"]
+    mime_type = audio_file.content_type or "audio/webm"
+    audio_bytes = audio_file.read()
+    if not audio_bytes:
+        return Response(
+            {"detail": "Uploaded audio is empty."},
+            status=status.HTTP_400_BAD_REQUEST,
         )
-        score_rule = {
-            "text_weight": text_weight,
-            "speed_weight": speed_weight,
-            "pitch_weight": pitch_weight,
-            "text_subweights": {
-                "char_similarity_weight": 0.75,
-                "token_similarity_weight": 0.25,
-            },
-            "bands": {
-                "excellent": ">= 90",
-                "good": ">= 75",
-                "fair": ">= 55",
-                "needs_improvement": "< 55",
-            },
-        }
-    else:
-        accuracy_ratio = text_score
-        score_rule = {
-            "text_weight": 1.0,
-            "speed_weight": 0.0,
-            "pitch_weight": 0.0,
-            "text_subweights": {
-                "char_similarity_weight": 0.75,
-                "token_similarity_weight": 0.25,
-            },
-            "bands": {
-                "excellent": ">= 90",
-                "good": ">= 75",
-                "fair": ">= 55",
-                "needs_improvement": "< 55",
-            },
-            "note": "audio metrics unavailable; text-only scoring",
-        }
+
+    transcript = ""
+    char_similarity = 0.0
+    token_similarity = 0.0
+    text_score = 0.0
+
+    try:
+        audio_metrics = _extract_audio_metrics(audio_bytes, mime_type)
+    except Exception as exc:
+        return Response(
+            {"detail": "Failed to analyze user audio.", "error": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        ref_audio_bytes = _synthesize_reference_tts(reference_text)
+        reference_audio_metrics = _extract_audio_metrics(ref_audio_bytes, "audio/mpeg")
+    except Exception as exc:
+        return Response(
+            {"detail": "Failed to synthesize/analyze reference TTS audio.", "error": str(exc)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    pitch_curve_similarity = _curve_similarity(
+        audio_metrics["pitch_curve"],
+        reference_audio_metrics["pitch_curve"],
+    )
+    volume_curve_similarity = _curve_similarity(
+        audio_metrics["volume_curve"],
+        reference_audio_metrics["volume_curve"],
+    )
+
+    speed_score = _score_speed_by_duration(
+        float(audio_metrics["duration_sec"]),
+        float(reference_audio_metrics["duration_sec"]),
+    )
+    pitch_score = float(pitch_curve_similarity if pitch_curve_similarity is not None else 0.0)
+    volume_score = float(volume_curve_similarity if volume_curve_similarity is not None else 0.0)
+
+    speed_weight = 0.35
+    pitch_weight = 0.45
+    volume_weight = 0.20
+    accuracy_ratio = (
+        speed_weight * speed_score
+        + pitch_weight * pitch_score
+        + volume_weight * volume_score
+    )
+    score_rule = {
+        "mode": "audio_only",
+        "speed_weight": speed_weight,
+        "pitch_weight": pitch_weight,
+        "volume_weight": volume_weight,
+        "bands": {
+            "excellent": ">= 90",
+            "good": ">= 75",
+            "fair": ">= 55",
+            "needs_improvement": "< 55",
+        },
+    }
 
     accuracy_ratio = max(0.0, min(1.0, accuracy_ratio))
     score_percent = round(accuracy_ratio * 100.0, 2)
 
-    feedback = _build_pronunciation_feedback(score_percent, reference_text, transcript)
+    feedback = _build_audio_feedback(score_percent, speed_score, pitch_score, volume_score)
 
     sentence = None
     if sentence_id:
@@ -987,23 +944,19 @@ def evaluate_pronunciation(request):
         transcript=transcript,
         score_percent=score_percent,
         text_score=round(text_score, 4),
-        speed_score=(round(audio_metrics["speed_score"], 4) if audio_metrics else None),
-        pitch_score=(round(audio_metrics["pitch_score"], 4) if audio_metrics else None),
+        speed_score=round(speed_score, 4),
+        pitch_score=round(pitch_score, 4),
         pitch_curve_similarity=pitch_curve_similarity,
         volume_curve_similarity=volume_curve_similarity,
-        audio_duration_sec=(audio_metrics["duration_sec"] if audio_metrics else None),
-        syllables_per_sec=(audio_metrics["syllables_per_sec"] if audio_metrics else None),
-        pitch_median_hz=(audio_metrics["pitch_median_hz"] if audio_metrics else None),
-        pitch_std_hz=(audio_metrics["pitch_std_hz"] if audio_metrics else None),
-        voiced_frames=(audio_metrics["voiced_frames"] if audio_metrics else 0),
-        user_pitch_curve=(audio_metrics["pitch_curve"] if audio_metrics else []),
-        user_volume_curve=(audio_metrics["volume_curve"] if audio_metrics else []),
-        reference_pitch_curve=(
-            reference_audio_metrics["pitch_curve"] if reference_audio_metrics else []
-        ),
-        reference_volume_curve=(
-            reference_audio_metrics["volume_curve"] if reference_audio_metrics else []
-        ),
+        audio_duration_sec=audio_metrics["duration_sec"],
+        syllables_per_sec=None,
+        pitch_median_hz=audio_metrics["pitch_median_hz"],
+        pitch_std_hz=audio_metrics["pitch_std_hz"],
+        voiced_frames=audio_metrics["voiced_frames"],
+        user_pitch_curve=audio_metrics["pitch_curve"],
+        user_volume_curve=audio_metrics["volume_curve"],
+        reference_pitch_curve=reference_audio_metrics["pitch_curve"],
+        reference_volume_curve=reference_audio_metrics["volume_curve"],
     )
 
     sentence_attempts_count = (
@@ -1015,7 +968,7 @@ def evaluate_pronunciation(request):
 
     pitch_verdict = None
     if audio_metrics:
-        pscore = float(audio_metrics["pitch_score"] or 0.0)
+        pscore = pitch_score
         if pscore >= 0.8:
             pitch_verdict = "stable"
         elif pscore >= 0.55:
@@ -1031,21 +984,19 @@ def evaluate_pronunciation(request):
             "char_similarity": round(char_similarity, 4),
             "token_similarity": round(token_similarity, 4),
             "text_score": round(text_score, 4),
-            "audio_metrics_available": bool(audio_metrics),
-            "speed_score": round(audio_metrics["speed_score"], 4) if audio_metrics else None,
-            "pitch_score": round(audio_metrics["pitch_score"], 4) if audio_metrics else None,
-            "audio_duration_sec": audio_metrics["duration_sec"] if audio_metrics else None,
-            "syllables_per_sec": audio_metrics["syllables_per_sec"] if audio_metrics else None,
-            "pitch_median_hz": audio_metrics["pitch_median_hz"] if audio_metrics else None,
-            "pitch_std_hz": audio_metrics["pitch_std_hz"] if audio_metrics else None,
-            "user_pitch_curve": audio_metrics["pitch_curve"] if audio_metrics else [],
-            "user_volume_curve": audio_metrics["volume_curve"] if audio_metrics else [],
-            "reference_pitch_curve": (
-                reference_audio_metrics["pitch_curve"] if reference_audio_metrics else []
-            ),
-            "reference_volume_curve": (
-                reference_audio_metrics["volume_curve"] if reference_audio_metrics else []
-            ),
+            "audio_metrics_available": True,
+            "speed_score": round(speed_score, 4),
+            "pitch_score": round(pitch_score, 4),
+            "volume_score": round(volume_score, 4),
+            "audio_duration_sec": audio_metrics["duration_sec"],
+            "reference_duration_sec": reference_audio_metrics["duration_sec"],
+            "syllables_per_sec": None,
+            "pitch_median_hz": audio_metrics["pitch_median_hz"],
+            "pitch_std_hz": audio_metrics["pitch_std_hz"],
+            "user_pitch_curve": audio_metrics["pitch_curve"],
+            "user_volume_curve": audio_metrics["volume_curve"],
+            "reference_pitch_curve": reference_audio_metrics["pitch_curve"],
+            "reference_volume_curve": reference_audio_metrics["volume_curve"],
             "pitch_curve_similarity": pitch_curve_similarity,
             "volume_curve_similarity": volume_curve_similarity,
             "pitch_verdict": pitch_verdict,
