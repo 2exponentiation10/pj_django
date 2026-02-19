@@ -358,12 +358,13 @@ def chat_with_gemini(request):
 
     gemini_api_key = getattr(settings, "GEMINI_API_KEY", "")
     openai_api_key = getattr(settings, "OPENAI_API_KEY", "")
-    if not gemini_api_key and not openai_api_key:
+    openai_fallback_enabled = bool(getattr(settings, "OPENAI_FALLBACK_ENABLED", False))
+    if not gemini_api_key and not (openai_api_key and openai_fallback_enabled):
         return Response(
             {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
             status=status.HTTP_200_OK,
         )
-    if not gemini_api_key and openai_api_key:
+    if not gemini_api_key and openai_api_key and openai_fallback_enabled:
         try:
             answer = _chat_with_openai(user_message)
             return Response({"reply": answer, "fallback": True, "provider": "openai"})
@@ -407,7 +408,9 @@ def chat_with_gemini(request):
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
-        if (exc.code in (429, 500, 502, 503, 504) or "RESOURCE_EXHAUSTED" in detail) and openai_api_key:
+        if (
+            exc.code in (429, 500, 502, 503, 504) or "RESOURCE_EXHAUSTED" in detail
+        ) and openai_api_key and openai_fallback_enabled:
             try:
                 answer = _chat_with_openai(user_message)
                 return Response({"reply": answer, "fallback": True, "provider": "openai"})
@@ -426,7 +429,7 @@ def chat_with_gemini(request):
             status=status.HTTP_502_BAD_GATEWAY,
         )
     except Exception as exc:  # pragma: no cover - network path
-        if openai_api_key:
+        if openai_api_key and openai_fallback_enabled:
             try:
                 answer = _chat_with_openai(user_message)
                 return Response({"reply": answer, "fallback": True, "provider": "openai"})
