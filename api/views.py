@@ -752,7 +752,22 @@ def _extract_audio_metrics(audio_bytes, mime_type):
     format_hint = format_map.get(format_hint, format_hint)
 
     AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
-    segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format=format_hint)
+    decode_errors = []
+    candidates = [format_hint, None, "webm", "ogg", "wav", "m4a", "mp3"]
+    seen = set()
+    segment = None
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format=candidate)
+            break
+        except Exception as exc:
+            decode_errors.append(f"{candidate or 'auto'}:{exc}")
+
+    if segment is None:
+        raise ValueError("Audio decode failed: " + " | ".join(decode_errors[:3]))
     if len(segment) <= 0:
         raise ValueError("Empty decoded audio")
 
