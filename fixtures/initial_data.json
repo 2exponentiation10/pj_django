@@ -1,0 +1,398 @@
+[
+  {
+    "model": "api.chapter",
+    "pk": 1,
+    "fields": {
+      "title": "인사와 일상",
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.chapter",
+    "pk": 2,
+    "fields": {
+      "title": "식당과 음식",
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.chapter",
+    "pk": 3,
+    "fields": {
+      "title": "병원과 행정",
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.chapter",
+    "pk": 4,
+    "fields": {
+      "title": "직장과 대화",
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 1,
+    "fields": {
+      "chapter": 1,
+      "korean_word": "안녕하세요",
+      "north_korean_word": "안녕하십니까",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 2,
+    "fields": {
+      "chapter": 1,
+      "korean_word": "고마워요",
+      "north_korean_word": "고맙습니다",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 3,
+    "fields": {
+      "chapter": 2,
+      "korean_word": "라면",
+      "north_korean_word": "국수",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 4,
+    "fields": {
+      "chapter": 2,
+      "korean_word": "후라이팬",
+      "north_korean_word": "프라이팬",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 5,
+    "fields": {
+      "chapter": 3,
+      "korean_word": "진료 접수",
+      "north_korean_word": "치료 등록",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 6,
+    "fields": {
+      "chapter": 3,
+      "korean_word": "주민센터",
+      "north_korean_word": "인민위원회",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 7,
+    "fields": {
+      "chapter": 3,
+      "korean_word": "신분증",
+      "north_korean_word": "공민증",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 8,
+    "fields": {
+      "chapter": 3,
+      "korean_word": "예약",
+      "north_korean_word": "약속",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 9,
+    "fields": {
+      "chapter": 4,
+      "korean_word": "회의",
+      "north_korean_word": "협의회",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 10,
+    "fields": {
+      "chapter": 4,
+      "korean_word": "업무 보고",
+      "north_korean_word": "사업 총화",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 11,
+    "fields": {
+      "chapter": 4,
+      "korean_word": "휴가",
+      "north_korean_word": "휴식일",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.word",
+    "pk": 12,
+    "fields": {
+      "chapter": 4,
+      "korean_word": "동료",
+      "north_korean_word": "동무",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 1,
+    "fields": {
+      "chapter": 1,
+      "korean_sentence": "안녕하세요, 오늘 날씨가 좋네요.",
+      "north_korean_sentence": "안녕하십니까, 오늘 날씨가 좋습니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 2,
+    "fields": {
+      "chapter": 1,
+      "korean_sentence": "내일 또 만나요.",
+      "north_korean_sentence": "내일 또 봅시다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 3,
+    "fields": {
+      "chapter": 2,
+      "korean_sentence": "라면을 끓여 주세요.",
+      "north_korean_sentence": "국수를 끓여 주십시오.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 4,
+    "fields": {
+      "chapter": 2,
+      "korean_sentence": "후라이팬을 달궈요.",
+      "north_korean_sentence": "프라이팬을 달굽시다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 5,
+    "fields": {
+      "chapter": 1,
+      "korean_sentence": "처음 뵙겠습니다. 잘 부탁드립니다.",
+      "north_korean_sentence": "처음 뵙겠습니다. 잘 부탁합니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 6,
+    "fields": {
+      "chapter": 1,
+      "korean_sentence": "지금 잠깐 통화 가능하실까요?",
+      "north_korean_sentence": "지금 잠깐 통화 가능합니까?",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 7,
+    "fields": {
+      "chapter": 2,
+      "korean_sentence": "맵지 않게 부탁드려요.",
+      "north_korean_sentence": "맵지 않게 해주십시오.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 8,
+    "fields": {
+      "chapter": 2,
+      "korean_sentence": "포장해 주세요.",
+      "north_korean_sentence": "싸서 주십시오.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 9,
+    "fields": {
+      "chapter": 3,
+      "korean_sentence": "진료 예약을 하고 싶어요.",
+      "north_korean_sentence": "치료 약속을 하고 싶습니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 10,
+    "fields": {
+      "chapter": 3,
+      "korean_sentence": "신분증을 보여 드릴게요.",
+      "north_korean_sentence": "공민증을 보여드리겠습니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 11,
+    "fields": {
+      "chapter": 3,
+      "korean_sentence": "주민센터에서 서류를 발급받았어요.",
+      "north_korean_sentence": "인민위원회에서 문건을 발급받았습니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 12,
+    "fields": {
+      "chapter": 3,
+      "korean_sentence": "대기 번호가 나오면 들어가세요.",
+      "north_korean_sentence": "대기 번호가 나오면 들어가십시오.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 13,
+    "fields": {
+      "chapter": 4,
+      "korean_sentence": "오늘 회의는 세 시에 시작합니다.",
+      "north_korean_sentence": "오늘 협의회는 세 시에 시작합니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 14,
+    "fields": {
+      "chapter": 4,
+      "korean_sentence": "업무 보고는 메일로 보내 주세요.",
+      "north_korean_sentence": "사업 총화는 메일로 보내주십시오.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 15,
+    "fields": {
+      "chapter": 4,
+      "korean_sentence": "이번 주 금요일에 휴가를 쓰겠습니다.",
+      "north_korean_sentence": "이번 주 금요일에 휴식일을 쓰겠습니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  },
+  {
+    "model": "api.sentence",
+    "pk": 16,
+    "fields": {
+      "chapter": 4,
+      "korean_sentence": "동료와 역할을 나눠서 진행할게요.",
+      "north_korean_sentence": "동무와 역할을 갈라서 진행하겠습니다.",
+      "is_called": false,
+      "is_correct": false,
+      "is_collect": false,
+      "accuracy": 0.0
+    }
+  }
+]
