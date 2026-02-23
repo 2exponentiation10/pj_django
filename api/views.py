@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 try:
     import imageio_ffmpeg
@@ -28,12 +29,19 @@ except Exception:  # pragma: no cover
     AudioSegment = None
 from django.db.models import Avg
 from django.conf import settings
+from django.http import FileResponse
 from rest_framework import status, viewsets
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from .models import Chapter, PronunciationAttempt, Sentence, Word
-from .serializers import ChapterSerializer, SentenceSerializer, WordSerializer
+from .models import Chapter, MediaAsset, PronunciationAttempt, Sentence, Word
+from .serializers import (
+    ChapterSerializer,
+    MediaAssetSerializer,
+    SentenceSerializer,
+    WordSerializer,
+)
 
 
 class ChapterViewSet(viewsets.ModelViewSet):
@@ -95,6 +103,12 @@ class SentenceViewSet(viewsets.ModelViewSet):
         sentence.is_correct = True
         sentence.save(update_fields=["is_correct"])
         return Response({"status": "success"})
+
+
+class MediaAssetViewSet(viewsets.ModelViewSet):
+    queryset = MediaAsset.objects.select_related("chapter", "word", "sentence").all()
+    serializer_class = MediaAssetSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
 
 @api_view(["GET"])
@@ -857,6 +871,9 @@ def _extract_audio_metrics(audio_bytes, mime_type):
         "mpeg": "mp3",
         "x-wav": "wav",
         "mp4": "m4a",
+        "x-m4a": "m4a",
+        "quicktime": "mov",
+        "3gpp": "3gp",
         "webm": "webm",
         "ogg": "ogg",
     }
@@ -864,7 +881,7 @@ def _extract_audio_metrics(audio_bytes, mime_type):
 
     AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
     decode_errors = []
-    candidates = [format_hint, None, "webm", "ogg", "wav", "m4a", "mp3"]
+    candidates = [format_hint, None, "webm", "ogg", "wav", "m4a", "mp4", "mov", "mp3"]
     seen = set()
     segment = None
     for candidate in candidates:
@@ -1143,6 +1160,21 @@ def evaluate_pronunciation(request):
             "score_rule": score_rule,
         }
     )
+
+
+@api_view(["GET"])
+def get_media_asset_file(request, asset_id):
+    try:
+        asset = MediaAsset.objects.get(pk=asset_id)
+    except MediaAsset.DoesNotExist:
+        return Response({"detail": "Media asset not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not asset.image:
+        return Response({"detail": "Media file is missing."}, status=status.HTTP_404_NOT_FOUND)
+
+    asset.image.open("rb")
+    file_name = Path(asset.image.name).name
+    return FileResponse(asset.image, as_attachment=False, filename=file_name)
 
 
 @api_view(["POST"])

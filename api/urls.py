@@ -3,12 +3,14 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     ChapterViewSet,
+    MediaAssetViewSet,
     SentenceViewSet,
     WordViewSet,
     chat_with_gemini,
     evaluate_pronunciation,
     get_chapter_evaluation_results,
     get_chapter_learning_progress,
+    get_media_asset_file,
     get_next_chapter,
     get_progress,
     get_review_queue,
@@ -27,6 +29,7 @@ router = DefaultRouter()
 router.register(r"chapters", ChapterViewSet, basename="chapters")
 router.register(r"words", WordViewSet, basename="words")
 router.register(r"sentences", SentenceViewSet, basename="sentences")
+router.register(r"media-assets", MediaAssetViewSet, basename="media-assets")
 
 urlpatterns = [
     path("", include(router.urls)),
@@ -75,6 +78,7 @@ urlpatterns = [
     path("get_progress/", get_progress, name="get-progress"),
     path("next_chapter/", get_next_chapter, name="next-chapter"),
     path("review_queue/", get_review_queue, name="review-queue"),
+    path("media-assets/<int:asset_id>/file/", get_media_asset_file, name="media-asset-file"),
     path("chat/", chat_with_gemini, name="chat-with-gemini"),
     path("pronunciation/evaluate/", evaluate_pronunciation, name="evaluate-pronunciation"),
 ]

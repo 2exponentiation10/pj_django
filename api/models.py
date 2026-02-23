@@ -1,27 +1,31 @@
 from django.db import models
 
+
 class Chapter(models.Model):
     title = models.CharField(max_length=100)
     accuracy = models.FloatField(default=0.0)
     difficulty = models.CharField(max_length=20, default="beginner")
     context_tag = models.CharField(max_length=50, default="daily")
+
     def __str__(self):
         return self.title
 
+
 class Word(models.Model):
-    chapter = models.ForeignKey(Chapter, related_name='words', on_delete=models.CASCADE)
+    chapter = models.ForeignKey(Chapter, related_name="words", on_delete=models.CASCADE)
     korean_word = models.CharField(max_length=100)
     north_korean_word = models.CharField(max_length=100)
     is_called = models.BooleanField(default=False)
     is_correct = models.BooleanField(default=False)
     is_collect = models.BooleanField(default=False)
     accuracy = models.FloatField(default=0.0)  # 단어 정확도 추가
+
     def __str__(self):
         return self.korean_word
 
 
 class Sentence(models.Model):
-    chapter = models.ForeignKey(Chapter, related_name='sentences', on_delete=models.CASCADE)
+    chapter = models.ForeignKey(Chapter, related_name="sentences", on_delete=models.CASCADE)
     korean_sentence = models.CharField(max_length=255)
     north_korean_sentence = models.CharField(max_length=255)
     is_called = models.BooleanField(default=False)
@@ -31,6 +35,59 @@ class Sentence(models.Model):
 
     def __str__(self):
         return self.korean_sentence
+
+
+class MediaAsset(models.Model):
+    CATEGORY_WORD = "word"
+    CATEGORY_SENTENCE = "sentence"
+    CATEGORY_CHAPTER = "chapter"
+    CATEGORY_GENERAL = "general"
+    CATEGORY_CHOICES = [
+        (CATEGORY_WORD, "word"),
+        (CATEGORY_SENTENCE, "sentence"),
+        (CATEGORY_CHAPTER, "chapter"),
+        (CATEGORY_GENERAL, "general"),
+    ]
+
+    category = models.CharField(
+        max_length=20,
+        choices=CATEGORY_CHOICES,
+        default=CATEGORY_GENERAL,
+        db_index=True,
+    )
+    label = models.CharField(max_length=200, blank=True, default="")
+    key_text = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    image = models.ImageField(upload_to="media_assets/%Y/%m/")
+    chapter = models.ForeignKey(
+        Chapter,
+        related_name="media_assets",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    word = models.ForeignKey(
+        Word,
+        related_name="media_assets",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    sentence = models.ForeignKey(
+        Sentence,
+        related_name="media_assets",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+
+    def __str__(self):
+        target = self.key_text or self.label or f"id={self.id}"
+        return f"{self.category}:{target}"
 
 
 class PronunciationAttempt(models.Model):
