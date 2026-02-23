@@ -155,6 +155,57 @@ def get_next_chapter(request):
 
 
 @api_view(["GET"])
+def get_review_queue(request):
+    try:
+        limit = int(request.GET.get("limit", "12"))
+    except ValueError:
+        limit = 12
+    limit = max(1, min(limit, 50))
+
+    candidates = []
+    for sentence in Sentence.objects.select_related("chapter").all().order_by("id"):
+        recent_attempts = list(
+            PronunciationAttempt.objects.filter(sentence_id=sentence.id)
+            .order_by("-created_at")[:3]
+        )
+        if recent_attempts:
+            recent_scores = [float(a.score_percent or 0.0) for a in recent_attempts]
+            recent_avg = sum(recent_scores) / len(recent_scores)
+            last_score = recent_scores[0]
+            priority = (100.0 - recent_avg) * 0.7 + (100.0 - last_score) * 0.3
+            reason = "최근 발음 점수가 낮아 복습이 필요합니다."
+        else:
+            # No attempts yet: schedule as medium-priority practice.
+            recent_avg = None
+            last_score = None
+            priority = 45.0
+            reason = "아직 발음 평가 기록이 없어 첫 복습을 권장합니다."
+
+        if sentence.is_collect and (recent_avg is not None and recent_avg >= 85):
+            continue
+
+        candidates.append(
+            {
+                "sentence_id": sentence.id,
+                "chapter_id": sentence.chapter_id,
+                "chapter_title": sentence.chapter.title,
+                "difficulty": sentence.chapter.difficulty,
+                "context_tag": sentence.chapter.context_tag,
+                "korean_sentence": sentence.korean_sentence,
+                "north_korean_sentence": sentence.north_korean_sentence,
+                "sentence_accuracy_ratio": round(float(sentence.accuracy or 0.0), 4),
+                "last_score_percent": round(last_score, 2) if last_score is not None else None,
+                "recent_avg_score_percent": round(recent_avg, 2) if recent_avg is not None else None,
+                "priority_score": round(priority, 2),
+                "reason": reason,
+            }
+        )
+
+    candidates.sort(key=lambda item: item["priority_score"], reverse=True)
+    return Response(candidates[:limit])
+
+
+@api_view(["GET"])
 def get_saved_words(request):
     serializer = WordSerializer(Word.objects.filter(is_correct=True).order_by("id"), many=True)
     return Response(serializer.data)

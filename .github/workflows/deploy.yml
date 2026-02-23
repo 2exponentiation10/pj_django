@@ -60,3 +60,9 @@ jobs:
 
       - name: Deploy Django
         run: bash scripts/deploy_django.sh
+
+      - name: Smoke check
+        env:
+          WEB_URL: https://satoori.protfolio.store
+          API_URL: https://satoori-api.protfolio.store/api
+        run: bash scripts/smoke_check.sh

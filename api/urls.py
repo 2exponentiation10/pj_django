@@ -11,6 +11,7 @@ from .views import (
     get_chapter_learning_progress,
     get_next_chapter,
     get_progress,
+    get_review_queue,
     get_saved_sentences,
     get_saved_words,
     mark_sentence_as_called,
@@ -73,6 +74,7 @@ urlpatterns = [
     path("saved_sentences/", get_saved_sentences, name="saved-sentences"),
     path("get_progress/", get_progress, name="get-progress"),
     path("next_chapter/", get_next_chapter, name="next-chapter"),
+    path("review_queue/", get_review_queue, name="review-queue"),
     path("chat/", chat_with_gemini, name="chat-with-gemini"),
     path("pronunciation/evaluate/", evaluate_pronunciation, name="evaluate-pronunciation"),
 ]
