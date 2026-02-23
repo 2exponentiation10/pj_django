@@ -3,6 +3,8 @@ from django.db import models
 class Chapter(models.Model):
     title = models.CharField(max_length=100)
     accuracy = models.FloatField(default=0.0)
+    difficulty = models.CharField(max_length=20, default="beginner")
+    context_tag = models.CharField(max_length=50, default="daily")
     def __str__(self):
         return self.title
 

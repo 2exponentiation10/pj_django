@@ -562,6 +562,66 @@ def _score_level(score_percent):
     return "needs_improvement"
 
 
+def _stddev(values):
+    if not values:
+        return None
+    if len(values) == 1:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    return math.sqrt(variance)
+
+
+def _build_recent_attempt_stats(sentence, window=3):
+    if not sentence:
+        return {
+            "recent_window_size": window,
+            "recent_attempt_scores": [],
+            "recent_avg_score": None,
+            "recent_score_stddev": None,
+            "recent_avg_pitch_score": None,
+            "recent_avg_speed_score": None,
+            "recent_avg_volume_score": None,
+        }
+
+    attempts = list(
+        PronunciationAttempt.objects.filter(sentence_id=sentence.id)
+        .order_by("-created_at")[:window]
+    )
+    if not attempts:
+        return {
+            "recent_window_size": window,
+            "recent_attempt_scores": [],
+            "recent_avg_score": None,
+            "recent_score_stddev": None,
+            "recent_avg_pitch_score": None,
+            "recent_avg_speed_score": None,
+            "recent_avg_volume_score": None,
+        }
+
+    scores = [float(a.score_percent or 0.0) for a in attempts]
+    pitch_scores = [float(a.pitch_score) for a in attempts if a.pitch_score is not None]
+    speed_scores = [float(a.speed_score) for a in attempts if a.speed_score is not None]
+    volume_scores = [float(a.volume_curve_similarity) for a in attempts if a.volume_curve_similarity is not None]
+    return {
+        "recent_window_size": window,
+        "recent_attempt_scores": [round(v, 2) for v in scores],
+        "recent_avg_score": round(sum(scores) / len(scores), 2),
+        "recent_score_stddev": (
+            round(_stddev(scores), 2) if _stddev(scores) is not None else None
+        ),
+        "recent_avg_pitch_score": (
+            round(sum(pitch_scores) / len(pitch_scores), 4) if pitch_scores else None
+        ),
+        "recent_avg_speed_score": (
+            round(sum(speed_scores) / len(speed_scores), 4) if speed_scores else None
+        ),
+        "recent_avg_volume_score": (
+            round(sum(volume_scores) / len(volume_scores), 4) if volume_scores else None
+        ),
+    }
+
+
 def _score_speed_by_duration(user_duration_sec, reference_duration_sec):
     if user_duration_sec <= 0 or reference_duration_sec <= 0:
         return 0.0
@@ -980,6 +1040,7 @@ def evaluate_pronunciation(request):
     sentence_best_score = (
         round(float(sentence.accuracy or 0.0) * 100.0, 2) if sentence else None
     )
+    recent_stats = _build_recent_attempt_stats(sentence, window=3)
 
     pitch_verdict = None
     if audio_metrics:
@@ -1018,6 +1079,13 @@ def evaluate_pronunciation(request):
             "attempt_id": attempt.id,
             "sentence_attempts_count": sentence_attempts_count,
             "sentence_best_score": sentence_best_score,
+            "recent_window_size": recent_stats["recent_window_size"],
+            "recent_attempt_scores": recent_stats["recent_attempt_scores"],
+            "recent_avg_score": recent_stats["recent_avg_score"],
+            "recent_score_stddev": recent_stats["recent_score_stddev"],
+            "recent_avg_pitch_score": recent_stats["recent_avg_pitch_score"],
+            "recent_avg_speed_score": recent_stats["recent_avg_speed_score"],
+            "recent_avg_volume_score": recent_stats["recent_avg_volume_score"],
             "feedback": feedback,
             "model": speech_model,
             "score_level": _score_level(score_percent),

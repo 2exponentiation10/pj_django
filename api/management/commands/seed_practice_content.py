@@ -7,6 +7,8 @@ from api.models import Chapter, Sentence, Word
 PRACTICE_DATA = [
     {
         "chapter": "인사와 일상",
+        "difficulty": "beginner",
+        "context_tag": "daily",
         "words": [
             ("감사합니다", "고맙습니다"),
             ("실례합니다", "미안합니다"),
@@ -32,6 +34,8 @@ PRACTICE_DATA = [
     },
     {
         "chapter": "식당과 음식",
+        "difficulty": "beginner",
+        "context_tag": "food",
         "words": [
             ("포장", "싸가기"),
             ("맵기", "매운 정도"),
@@ -57,6 +61,8 @@ PRACTICE_DATA = [
     },
     {
         "chapter": "병원과 행정",
+        "difficulty": "intermediate",
+        "context_tag": "medical_admin",
         "words": [
             ("진료 예약", "치료 약속"),
             ("접수", "등록"),
@@ -82,6 +88,8 @@ PRACTICE_DATA = [
     },
     {
         "chapter": "직장과 대화",
+        "difficulty": "intermediate",
+        "context_tag": "work",
         "words": [
             ("회의", "협의회"),
             ("업무 보고", "사업 총화"),
@@ -107,6 +115,8 @@ PRACTICE_DATA = [
     },
     {
         "chapter": "교통과 길찾기",
+        "difficulty": "beginner",
+        "context_tag": "transport",
         "words": [
             ("환승", "갈아타기"),
             ("정류장", "정차장"),
@@ -132,6 +142,8 @@ PRACTICE_DATA = [
     },
     {
         "chapter": "쇼핑과 결제",
+        "difficulty": "beginner",
+        "context_tag": "shopping",
         "words": [
             ("교환", "바꾸기"),
             ("환불", "돈 돌려받기"),
@@ -157,6 +169,8 @@ PRACTICE_DATA = [
     },
     {
         "chapter": "학교와 공부",
+        "difficulty": "intermediate",
+        "context_tag": "education",
         "words": [
             ("수강 신청", "과목 등록"),
             ("과제", "학습 과업"),
@@ -182,6 +196,8 @@ PRACTICE_DATA = [
     },
     {
         "chapter": "은행과 통신",
+        "difficulty": "advanced",
+        "context_tag": "finance_telecom",
         "words": [
             ("계좌", "통장"),
             ("이체", "송금"),
@@ -228,10 +244,26 @@ class Command(BaseCommand):
             chapter_title = item["chapter"]
             chapter, chapter_created = Chapter.objects.get_or_create(
                 title=chapter_title,
-                defaults={"accuracy": 0.0},
+                defaults={
+                    "accuracy": 0.0,
+                    "difficulty": item.get("difficulty", "beginner"),
+                    "context_tag": item.get("context_tag", "daily"),
+                },
             )
             if chapter_created:
                 created_chapters += 1
+            else:
+                updated_fields = []
+                new_difficulty = item.get("difficulty")
+                new_context_tag = item.get("context_tag")
+                if new_difficulty and chapter.difficulty != new_difficulty:
+                    chapter.difficulty = new_difficulty
+                    updated_fields.append("difficulty")
+                if new_context_tag and chapter.context_tag != new_context_tag:
+                    chapter.context_tag = new_context_tag
+                    updated_fields.append("context_tag")
+                if updated_fields:
+                    chapter.save(update_fields=updated_fields)
 
             for korean, north in item["words"]:
                 if not Word.objects.filter(
