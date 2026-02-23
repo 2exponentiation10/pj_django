@@ -30,6 +30,7 @@ run_docker compose -f "$COMPOSE_FILE" up -d --build api
 
 run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py migrate
 run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py collectstatic --noinput
+run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py seed_practice_content
 
 if [ -f "$TARGET_DJANGO_DIR/fixtures/initial_data.json" ]; then
   CHAPTER_COUNT=$(
