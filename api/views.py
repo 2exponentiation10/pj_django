@@ -3,6 +3,7 @@ import base64
 import io
 import math
 import re
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -861,7 +862,7 @@ def _build_audio_feedback(score_percent, speed_score, pitch_score, volume_score)
     return f"{level} " + " ".join(tips)
 
 
-def _extract_audio_metrics(audio_bytes, mime_type):
+def _extract_audio_metrics(audio_bytes, mime_type, file_name=None):
     if AudioSegment is None or imageio_ffmpeg is None or np is None:
         raise RuntimeError("audio metric dependencies are not installed")
     format_hint = None
@@ -871,6 +872,7 @@ def _extract_audio_metrics(audio_bytes, mime_type):
         "mpeg": "mp3",
         "x-wav": "wav",
         "mp4": "m4a",
+        "m4a": "m4a",
         "x-m4a": "m4a",
         "quicktime": "mov",
         "3gpp": "3gp",
@@ -881,7 +883,20 @@ def _extract_audio_metrics(audio_bytes, mime_type):
 
     AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()
     decode_errors = []
-    candidates = [format_hint, None, "webm", "ogg", "wav", "m4a", "mp4", "mov", "mp3"]
+    candidates = [
+        format_hint,
+        None,
+        "m4a",
+        "mp4",
+        "ipod",
+        "aac",
+        "3gp",
+        "mov",
+        "webm",
+        "ogg",
+        "wav",
+        "mp3",
+    ]
     seen = set()
     segment = None
     for candidate in candidates:
@@ -895,7 +910,22 @@ def _extract_audio_metrics(audio_bytes, mime_type):
             decode_errors.append(f"{candidate or 'auto'}:{exc}")
 
     if segment is None:
-        raise ValueError("Audio decode failed: " + " | ".join(decode_errors[:3]))
+        # iOS Voice Memos(.m4a) may decode better via file-path probing than memory stream.
+        suffix = ".bin"
+        if file_name and "." in file_name:
+            suffix = "." + file_name.rsplit(".", 1)[1].lower()
+        elif format_hint:
+            suffix = f".{format_hint}"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+            tmp.write(audio_bytes)
+            tmp.flush()
+            try:
+                segment = AudioSegment.from_file(tmp.name)
+            except Exception as exc:
+                decode_errors.append(f"file-auto:{exc}")
+
+    if segment is None:
+        raise ValueError("Audio decode failed: " + " | ".join(decode_errors[:5]))
     if len(segment) <= 0:
         raise ValueError("Empty decoded audio")
 
@@ -1010,7 +1040,7 @@ def evaluate_pronunciation(request):
     text_score = 0.0
 
     try:
-        audio_metrics = _extract_audio_metrics(audio_bytes, mime_type)
+        audio_metrics = _extract_audio_metrics(audio_bytes, mime_type, audio_file.name)
     except Exception as exc:
         return Response(
             {"detail": "Failed to analyze user audio.", "error": str(exc)},
