@@ -3,6 +3,7 @@ import base64
 import io
 import math
 import re
+import subprocess
 import tempfile
 import urllib.error
 import urllib.parse
@@ -923,6 +924,46 @@ def _extract_audio_metrics(audio_bytes, mime_type, file_name=None):
                 segment = AudioSegment.from_file(tmp.name)
             except Exception as exc:
                 decode_errors.append(f"file-auto:{exc}")
+
+    if segment is None:
+        # Last-resort: force transcode via ffmpeg and read as wav.
+        suffix = ".bin"
+        if file_name and "." in file_name:
+            suffix = "." + file_name.rsplit(".", 1)[1].lower()
+        elif format_hint:
+            suffix = f".{format_hint}"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src_path = str(Path(tmpdir) / f"src{suffix}")
+            out_path = str(Path(tmpdir) / "normalized.wav")
+            Path(src_path).write_bytes(audio_bytes)
+            ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+            cmd = [
+                ffmpeg_bin,
+                "-y",
+                "-i",
+                src_path,
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                out_path,
+            ]
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if proc.returncode == 0 and Path(out_path).exists():
+                try:
+                    segment = AudioSegment.from_wav(out_path)
+                except Exception as exc:
+                    decode_errors.append(f"ffmpeg-wav-read:{exc}")
+            else:
+                err = (proc.stderr or proc.stdout or "").strip()
+                decode_errors.append(f"ffmpeg-transcode:{err[:300]}")
 
     if segment is None:
         raise ValueError("Audio decode failed: " + " | ".join(decode_errors[:5]))
