@@ -1,6 +1,7 @@
 import json
 import base64
 import io
+import logging
 import math
 import re
 import subprocess
@@ -44,6 +45,8 @@ from .serializers import (
     SentenceSerializer,
     WordSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ChapterViewSet(viewsets.ModelViewSet):
@@ -1081,10 +1084,23 @@ def evaluate_pronunciation(request):
     text_score = 0.0
 
     try:
+        logger.info(
+            "Pronunciation eval request: name=%s content_type=%s size=%d",
+            getattr(audio_file, "name", ""),
+            mime_type,
+            len(audio_bytes),
+        )
         audio_metrics = _extract_audio_metrics(audio_bytes, mime_type, audio_file.name)
     except Exception as exc:
+        logger.warning(
+            "Pronunciation audio decode failed: name=%s content_type=%s size=%d error=%s",
+            getattr(audio_file, "name", ""),
+            mime_type,
+            len(audio_bytes),
+            str(exc)[:500],
+        )
         return Response(
-            {"detail": "Failed to analyze user audio.", "error": str(exc)},
+            {"detail": "Failed to analyze user audio.", "error": str(exc)[:1000]},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
