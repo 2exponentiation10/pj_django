@@ -450,13 +450,15 @@ def chat_with_gemini(request):
     gemini_api_key = getattr(settings, "GEMINI_API_KEY", "")
     openai_api_key = getattr(settings, "OPENAI_API_KEY", "")
     openai_enabled = bool(openai_api_key)
+    # Prefer OpenAI first so chat keeps working even when Gemini key is invalid.
+    if openai_enabled:
+        try:
+            answer = _chat_with_openai(user_message)
+            return Response({"reply": answer, "fallback": False, "provider": "openai"})
+        except Exception:
+            pass
+
     if not gemini_api_key:
-        if openai_enabled:
-            try:
-                answer = _chat_with_openai(user_message)
-                return Response({"reply": answer, "fallback": True, "provider": "openai"})
-            except Exception:
-                pass
         return Response(
             {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
             status=status.HTTP_200_OK,
