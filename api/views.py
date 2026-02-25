@@ -496,25 +496,21 @@ def chat_with_gemini(request):
             raw = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
-        if (
-            exc.code in (429, 500, 502, 503, 504) or "RESOURCE_EXHAUSTED" in detail
-        ) and openai_enabled:
+        if openai_enabled:
             try:
                 answer = _chat_with_openai(user_message)
                 return Response({"reply": answer, "fallback": True, "provider": "openai"})
             except Exception:
-                return Response(
-                    {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
-                    status=status.HTTP_200_OK,
-                )
-        if exc.code == 429 or "RESOURCE_EXHAUSTED" in detail:
-            return Response(
-                {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
-                status=status.HTTP_200_OK,
-            )
+                pass
         return Response(
-            {"detail": "Gemini API request failed.", "error": detail},
-            status=status.HTTP_502_BAD_GATEWAY,
+            {
+                "reply": _fallback_chat_reply(user_message),
+                "fallback": True,
+                "provider": "local",
+                "reason": "gemini_http_error",
+                "error": detail[:300],
+            },
+            status=status.HTTP_200_OK,
         )
     except Exception as exc:  # pragma: no cover - network path
         if openai_enabled:
@@ -522,13 +518,16 @@ def chat_with_gemini(request):
                 answer = _chat_with_openai(user_message)
                 return Response({"reply": answer, "fallback": True, "provider": "openai"})
             except Exception:
-                return Response(
-                    {"reply": _fallback_chat_reply(user_message), "fallback": True, "provider": "local"},
-                    status=status.HTTP_200_OK,
-                )
+                pass
         return Response(
-            {"detail": "Gemini request error.", "error": str(exc)},
-            status=status.HTTP_502_BAD_GATEWAY,
+            {
+                "reply": _fallback_chat_reply(user_message),
+                "fallback": True,
+                "provider": "local",
+                "reason": "gemini_request_error",
+                "error": str(exc)[:300],
+            },
+            status=status.HTTP_200_OK,
         )
 
     data = json.loads(raw)
