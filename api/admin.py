@@ -5,9 +5,9 @@ from .models import Chapter, MediaAsset, PronunciationAttempt, Sentence, UserPro
 
 @admin.register(Chapter)
 class ChapterAdmin(admin.ModelAdmin):
-    list_display = ("id", "title", "difficulty", "context_tag", "accuracy")
-    search_fields = ("title", "context_tag")
-    list_filter = ("difficulty", "context_tag")
+    list_display = ("id", "owner", "title", "difficulty", "context_tag", "accuracy")
+    search_fields = ("title", "context_tag", "owner__username")
+    list_filter = ("owner", "difficulty", "context_tag")
 
 
 @admin.register(Word)
@@ -26,14 +26,14 @@ class SentenceAdmin(admin.ModelAdmin):
 
 @admin.register(MediaAsset)
 class MediaAssetAdmin(admin.ModelAdmin):
-    list_display = ("id", "category", "label", "key_text", "chapter", "word", "sentence", "updated_at")
-    search_fields = ("label", "key_text")
-    list_filter = ("category",)
+    list_display = ("id", "owner", "category", "label", "key_text", "chapter", "word", "sentence", "updated_at")
+    search_fields = ("label", "key_text", "owner__username")
+    list_filter = ("owner", "category")
 
 
 @admin.register(PronunciationAttempt)
 class PronunciationAttemptAdmin(admin.ModelAdmin):
-    list_display = ("id", "sentence", "score_percent", "speed_score", "pitch_score", "created_at")
+    list_display = ("id", "user", "sentence", "score_percent", "speed_score", "pitch_score", "created_at")
     search_fields = ("reference_text", "transcript")
 
 

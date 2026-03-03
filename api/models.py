@@ -3,6 +3,7 @@ from django.contrib.auth.models import User
 
 
 class Chapter(models.Model):
+    owner = models.ForeignKey(User, related_name="chapters", on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
     accuracy = models.FloatField(default=0.0)
     difficulty = models.CharField(max_length=20, default="beginner")
@@ -56,6 +57,7 @@ class MediaAsset(models.Model):
         default=CATEGORY_GENERAL,
         db_index=True,
     )
+    owner = models.ForeignKey(User, related_name="media_assets", on_delete=models.CASCADE)
     label = models.CharField(max_length=200, blank=True, default="")
     key_text = models.CharField(max_length=255, blank=True, default="", db_index=True)
     image = models.ImageField(upload_to="media_assets/%Y/%m/")
@@ -92,6 +94,13 @@ class MediaAsset(models.Model):
 
 
 class PronunciationAttempt(models.Model):
+    user = models.ForeignKey(
+        User,
+        related_name="pronunciation_attempts",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     sentence = models.ForeignKey(
         Sentence,
         related_name="pronunciation_attempts",

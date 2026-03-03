@@ -32,6 +32,7 @@ except Exception:  # pragma: no cover
     AudioSegment = None
 from django.db.models import Avg
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.http import FileResponse
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -49,9 +50,39 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
+def _get_or_create_master_user():
+    user_model = get_user_model()
+    user, created = user_model.objects.get_or_create(
+        username="master",
+        defaults={
+            "is_active": True,
+            "is_staff": True,
+            "is_superuser": True,
+            "email": "master@local",
+        },
+    )
+    if created:
+        user.set_unusable_password()
+        user.save(update_fields=["password"])
+    return user
+
+
+def _get_effective_user(request):
+    if getattr(request, "user", None) and request.user.is_authenticated:
+        return request.user
+    return _get_or_create_master_user()
+
+
 class ChapterViewSet(viewsets.ModelViewSet):
     queryset = Chapter.objects.all().order_by("id")
     serializer_class = ChapterSerializer
+
+    def get_queryset(self):
+        user = _get_effective_user(self.request)
+        return Chapter.objects.filter(owner=user).order_by("id")
+
+    def perform_create(self, serializer):
+        serializer.save(owner=_get_effective_user(self.request))
 
     @action(detail=True, methods=["get"])
     def words(self, request, pk=None):
@@ -90,6 +121,10 @@ class WordViewSet(viewsets.ModelViewSet):
     queryset = Word.objects.all().order_by("id")
     serializer_class = WordSerializer
 
+    def get_queryset(self):
+        user = _get_effective_user(self.request)
+        return Word.objects.filter(chapter__owner=user).order_by("id")
+
     @action(detail=True, methods=["post"])
     def save_word(self, request, pk=None):
         word = self.get_object()
@@ -101,6 +136,10 @@ class WordViewSet(viewsets.ModelViewSet):
 class SentenceViewSet(viewsets.ModelViewSet):
     queryset = Sentence.objects.all().order_by("id")
     serializer_class = SentenceSerializer
+
+    def get_queryset(self):
+        user = _get_effective_user(self.request)
+        return Sentence.objects.filter(chapter__owner=user).order_by("id")
 
     @action(detail=True, methods=["post"])
     def save_sentence(self, request, pk=None):
@@ -115,10 +154,22 @@ class MediaAssetViewSet(viewsets.ModelViewSet):
     serializer_class = MediaAssetSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    def get_queryset(self):
+        user = _get_effective_user(self.request)
+        return (
+            MediaAsset.objects.select_related("chapter", "word", "sentence")
+            .filter(owner=user)
+            .order_by("-updated_at", "-id")
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(owner=_get_effective_user(self.request))
+
 
 @api_view(["GET"])
 def get_progress(request):
-    chapters = Chapter.objects.all().order_by("id")
+    user = _get_effective_user(request)
+    chapters = Chapter.objects.filter(owner=user).order_by("id")
     progress_data = []
 
     for chapter in chapters:
@@ -157,7 +208,8 @@ def get_progress(request):
 
 @api_view(["GET"])
 def get_next_chapter(request):
-    chapters = Chapter.objects.all().order_by("id")
+    user = _get_effective_user(request)
+    chapters = Chapter.objects.filter(owner=user).order_by("id")
     if not chapters.exists():
         return Response({"detail": "No chapters found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -175,6 +227,7 @@ def get_next_chapter(request):
 
 @api_view(["GET"])
 def get_review_queue(request):
+    user = _get_effective_user(request)
     try:
         limit = int(request.GET.get("limit", "12"))
     except ValueError:
@@ -182,9 +235,13 @@ def get_review_queue(request):
     limit = max(1, min(limit, 50))
 
     candidates = []
-    for sentence in Sentence.objects.select_related("chapter").all().order_by("id"):
+    for sentence in (
+        Sentence.objects.select_related("chapter")
+        .filter(chapter__owner=user)
+        .order_by("id")
+    ):
         recent_attempts = list(
-            PronunciationAttempt.objects.filter(sentence_id=sentence.id)
+            PronunciationAttempt.objects.filter(sentence_id=sentence.id, user=user)
             .order_by("-created_at")[:3]
         )
         if recent_attempts:
@@ -226,20 +283,29 @@ def get_review_queue(request):
 
 @api_view(["GET"])
 def get_saved_words(request):
-    serializer = WordSerializer(Word.objects.filter(is_correct=True).order_by("id"), many=True)
+    user = _get_effective_user(request)
+    serializer = WordSerializer(
+        Word.objects.filter(chapter__owner=user, is_correct=True).order_by("id"),
+        many=True,
+    )
     return Response(serializer.data)
 
 
 @api_view(["GET"])
 def get_saved_sentences(request):
-    serializer = SentenceSerializer(Sentence.objects.filter(is_correct=True).order_by("id"), many=True)
+    user = _get_effective_user(request)
+    serializer = SentenceSerializer(
+        Sentence.objects.filter(chapter__owner=user, is_correct=True).order_by("id"),
+        many=True,
+    )
     return Response(serializer.data)
 
 
 @api_view(["POST", "PATCH"])
 def update_word(request, word_id):
+    user = _get_effective_user(request)
     try:
-        word = Word.objects.get(pk=word_id)
+        word = Word.objects.get(pk=word_id, chapter__owner=user)
     except Word.DoesNotExist:
         return Response({"detail": "Word not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -258,8 +324,9 @@ def update_word(request, word_id):
 
 @api_view(["POST"])
 def mark_word_as_called(request, word_id):
+    user = _get_effective_user(request)
     try:
-        word = Word.objects.get(pk=word_id)
+        word = Word.objects.get(pk=word_id, chapter__owner=user)
     except Word.DoesNotExist:
         return Response({"detail": "Word not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -270,8 +337,9 @@ def mark_word_as_called(request, word_id):
 
 @api_view(["POST", "PATCH"])
 def update_sentence(request, sentence_id):
+    user = _get_effective_user(request)
     try:
-        sentence = Sentence.objects.get(pk=sentence_id)
+        sentence = Sentence.objects.get(pk=sentence_id, chapter__owner=user)
     except Sentence.DoesNotExist:
         return Response({"detail": "Sentence not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -289,8 +357,9 @@ def update_sentence(request, sentence_id):
 
 @api_view(["POST"])
 def mark_sentence_as_called(request, sentence_id):
+    user = _get_effective_user(request)
     try:
-        sentence = Sentence.objects.get(pk=sentence_id)
+        sentence = Sentence.objects.get(pk=sentence_id, chapter__owner=user)
     except Sentence.DoesNotExist:
         return Response({"detail": "Sentence not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -301,8 +370,9 @@ def mark_sentence_as_called(request, sentence_id):
 
 @api_view(["PUT", "POST"])
 def update_sentence_accuracy(request, sentence_id):
+    user = _get_effective_user(request)
     try:
-        sentence = Sentence.objects.get(pk=sentence_id)
+        sentence = Sentence.objects.get(pk=sentence_id, chapter__owner=user)
     except Sentence.DoesNotExist:
         return Response({"detail": "Sentence not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -314,8 +384,9 @@ def update_sentence_accuracy(request, sentence_id):
 
 @api_view(["PUT"])
 def update_sentence_accuracy_and_text(request, sentence_id):
+    user = _get_effective_user(request)
     try:
-        sentence = Sentence.objects.get(pk=sentence_id)
+        sentence = Sentence.objects.get(pk=sentence_id, chapter__owner=user)
     except Sentence.DoesNotExist:
         return Response({"detail": "Sentence not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -332,8 +403,9 @@ def update_sentence_accuracy_and_text(request, sentence_id):
 
 @api_view(["GET"])
 def get_chapter_learning_progress(request, chapter_id):
+    user = _get_effective_user(request)
     try:
-        chapter = Chapter.objects.get(pk=chapter_id)
+        chapter = Chapter.objects.get(pk=chapter_id, owner=user)
     except Chapter.DoesNotExist:
         return Response({"detail": "Chapter not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -359,7 +431,8 @@ def get_chapter_learning_progress(request, chapter_id):
 
 @api_view(["GET"])
 def get_chapter_evaluation_results(request, chapter_id):
-    sentences = Sentence.objects.filter(chapter_id=chapter_id).order_by("id")
+    user = _get_effective_user(request)
+    sentences = Sentence.objects.filter(chapter_id=chapter_id, chapter__owner=user).order_by("id")
     serializer = SentenceSerializer(sentences, many=True)
     return Response(serializer.data)
 
@@ -652,7 +725,7 @@ def _stddev(values):
     return math.sqrt(variance)
 
 
-def _build_recent_attempt_stats(sentence, window=3):
+def _build_recent_attempt_stats(sentence, user=None, window=3):
     if not sentence:
         return {
             "recent_window_size": window,
@@ -664,10 +737,10 @@ def _build_recent_attempt_stats(sentence, window=3):
             "recent_avg_volume_score": None,
         }
 
-    attempts = list(
-        PronunciationAttempt.objects.filter(sentence_id=sentence.id)
-        .order_by("-created_at")[:window]
-    )
+    q = PronunciationAttempt.objects.filter(sentence_id=sentence.id)
+    if user is not None:
+        q = q.filter(user=user)
+    attempts = list(q.order_by("-created_at")[:window])
     if not attempts:
         return {
             "recent_window_size": window,
@@ -1062,6 +1135,7 @@ def _transcribe_with_gemini(audio_bytes, mime_type, model_name, api_key):
 
 @api_view(["POST"])
 def evaluate_pronunciation(request):
+    user = _get_effective_user(request)
     reference_text = (request.data.get("reference_text") or "").strip()
     sentence_id = request.data.get("sentence_id")
 
@@ -1168,7 +1242,7 @@ def evaluate_pronunciation(request):
     sentence = None
     if sentence_id:
         try:
-            sentence = Sentence.objects.get(pk=sentence_id)
+            sentence = Sentence.objects.get(pk=sentence_id, chapter__owner=user)
             # Keep the best score for stability across repeated retries.
             sentence.accuracy = max(float(sentence.accuracy or 0.0), float(accuracy_ratio))
             sentence.save(update_fields=["accuracy"])
@@ -1179,6 +1253,7 @@ def evaluate_pronunciation(request):
             )
 
     attempt = PronunciationAttempt.objects.create(
+        user=user,
         sentence=sentence,
         reference_text=reference_text,
         transcript=transcript,
@@ -1200,12 +1275,14 @@ def evaluate_pronunciation(request):
     )
 
     sentence_attempts_count = (
-        PronunciationAttempt.objects.filter(sentence_id=sentence.id).count() if sentence else None
+        PronunciationAttempt.objects.filter(sentence_id=sentence.id, user=user).count()
+        if sentence
+        else None
     )
     sentence_best_score = (
         round(float(sentence.accuracy or 0.0) * 100.0, 2) if sentence else None
     )
-    recent_stats = _build_recent_attempt_stats(sentence, window=3)
+    recent_stats = _build_recent_attempt_stats(sentence, user=user, window=3)
 
     pitch_verdict = None
     if audio_metrics:
@@ -1261,8 +1338,9 @@ def evaluate_pronunciation(request):
 
 @api_view(["GET"])
 def get_media_asset_file(request, asset_id):
+    user = _get_effective_user(request)
     try:
-        asset = MediaAsset.objects.get(pk=asset_id)
+        asset = MediaAsset.objects.get(pk=asset_id, owner=user)
     except MediaAsset.DoesNotExist:
         return Response({"detail": "Media asset not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1276,12 +1354,13 @@ def get_media_asset_file(request, asset_id):
 
 @api_view(["POST"])
 def reset_sentence_pronunciation(request, sentence_id):
+    user = _get_effective_user(request)
     try:
-        sentence = Sentence.objects.get(pk=sentence_id)
+        sentence = Sentence.objects.get(pk=sentence_id, chapter__owner=user)
     except Sentence.DoesNotExist:
         return Response({"detail": "Sentence not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    deleted, _ = PronunciationAttempt.objects.filter(sentence_id=sentence_id).delete()
+    deleted, _ = PronunciationAttempt.objects.filter(sentence_id=sentence_id, user=user).delete()
     sentence.accuracy = 0.0
     sentence.save(update_fields=["accuracy"])
     return Response({"status": "ok", "deleted_attempts": deleted, "sentence_id": sentence.id})

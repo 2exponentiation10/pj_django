@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.contrib.auth import get_user_model
 from django.db import transaction
 
 from api.models import Chapter, Sentence, Word
@@ -229,6 +230,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--username",
+            default="master",
+            help="콘텐츠를 소유할 사용자명 (기본: master)",
+        )
+        parser.add_argument(
             "--reset-progress",
             action="store_true",
             help="기존 단어/문장의 호출/정답/정확도 상태를 초기화합니다.",
@@ -236,6 +242,21 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        username = options.get("username") or "master"
+        user_model = get_user_model()
+        owner, created = user_model.objects.get_or_create(
+            username=username,
+            defaults={
+                "is_active": True,
+                "is_staff": username == "master",
+                "is_superuser": username == "master",
+                "email": f"{username}@local",
+            },
+        )
+        if created:
+            owner.set_unusable_password()
+            owner.save(update_fields=["password"])
+
         created_chapters = 0
         created_words = 0
         created_sentences = 0
@@ -243,6 +264,7 @@ class Command(BaseCommand):
         for item in PRACTICE_DATA:
             chapter_title = item["chapter"]
             chapter, chapter_created = Chapter.objects.get_or_create(
+                owner=owner,
                 title=chapter_title,
                 defaults={
                     "accuracy": 0.0,
@@ -266,9 +288,7 @@ class Command(BaseCommand):
                     chapter.save(update_fields=updated_fields)
 
             for korean, north in item["words"]:
-                if not Word.objects.filter(
-                    chapter=chapter, korean_word=korean
-                ).exists():
+                if not Word.objects.filter(chapter=chapter, korean_word=korean).exists():
                     Word.objects.create(
                         chapter=chapter,
                         korean_word=korean,
@@ -281,9 +301,7 @@ class Command(BaseCommand):
                     created_words += 1
 
             for korean, north in item["sentences"]:
-                if not Sentence.objects.filter(
-                    chapter=chapter, korean_sentence=korean
-                ).exists():
+                if not Sentence.objects.filter(chapter=chapter, korean_sentence=korean).exists():
                     Sentence.objects.create(
                         chapter=chapter,
                         korean_sentence=korean,
@@ -296,13 +314,13 @@ class Command(BaseCommand):
                     created_sentences += 1
 
         if options["reset_progress"]:
-            Word.objects.update(
+            Word.objects.filter(chapter__owner=owner).update(
                 is_called=False, is_correct=False, is_collect=False, accuracy=0.0
             )
-            Sentence.objects.update(
+            Sentence.objects.filter(chapter__owner=owner).update(
                 is_called=False, is_correct=False, is_collect=False, accuracy=0.0
             )
-            Chapter.objects.update(accuracy=0.0)
+            Chapter.objects.filter(owner=owner).update(accuracy=0.0)
             self.stdout.write(
                 self.style.WARNING("학습/평가 진행도(호출/정답/정확도)를 초기화했습니다.")
             )
