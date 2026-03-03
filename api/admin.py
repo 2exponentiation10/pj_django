@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Chapter, MediaAsset, PronunciationAttempt, Sentence, Word
+from .models import Chapter, MediaAsset, PronunciationAttempt, Sentence, UserProfile, Word
 
 
 @admin.register(Chapter)
@@ -35,3 +35,10 @@ class MediaAssetAdmin(admin.ModelAdmin):
 class PronunciationAttemptAdmin(admin.ModelAdmin):
     list_display = ("id", "sentence", "score_percent", "speed_score", "pitch_score", "created_at")
     search_fields = ("reference_text", "transcript")
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "display_name", "role", "is_active", "updated_at")
+    search_fields = ("user__username", "display_name")
+    list_filter = ("role", "is_active")

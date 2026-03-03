@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 
 class Chapter(models.Model):
@@ -127,3 +128,25 @@ class PronunciationAttempt(models.Model):
 
     def __str__(self):
         return f"Attempt<{self.id}> sentence={self.sentence_id} score={self.score_percent:.2f}"
+
+
+class UserProfile(models.Model):
+    ROLE_LEARNER = "learner"
+    ROLE_ADMIN = "admin"
+    ROLE_CHOICES = [
+        (ROLE_LEARNER, "learner"),
+        (ROLE_ADMIN, "admin"),
+    ]
+
+    user = models.OneToOneField(User, related_name="profile", on_delete=models.CASCADE)
+    display_name = models.CharField(max_length=120, blank=True, default="")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_LEARNER)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-id"]
+
+    def __str__(self):
+        return self.display_name or self.user.username
