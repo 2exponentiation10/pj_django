@@ -174,12 +174,22 @@ def get_progress(request):
 
     for chapter in chapters:
         words = Word.objects.filter(chapter=chapter)
+        sentences = Sentence.objects.filter(chapter=chapter)
+
         total_words = words.count()
         called_words = words.filter(is_called=True).count()
-        correct_words = words.filter(is_collect=True).count()
+        collect_words = words.filter(is_collect=True).count()
 
-        progress = (called_words / total_words) * 100 if total_words else 0
-        accuracy = (correct_words / total_words) * 100 if total_words else 0
+        total_sentences = sentences.count()
+        called_sentences = sentences.filter(is_called=True).count()
+        collect_sentences = sentences.filter(is_collect=True).count()
+
+        total_items = total_words + total_sentences
+        called_items = called_words + called_sentences
+        collect_items = collect_words + collect_sentences
+
+        progress = (called_items / total_items) * 100 if total_items else 0
+        accuracy = (collect_items / total_items) * 100 if total_items else 0
 
         progress_data.append(
             {
@@ -189,6 +199,13 @@ def get_progress(request):
                 "accuracy": accuracy,
                 "total_words": total_words,
                 "called_words": called_words,
+                "collect_words": collect_words,
+                "total_sentences": total_sentences,
+                "called_sentences": called_sentences,
+                "collect_sentences": collect_sentences,
+                "total_items": total_items,
+                "called_items": called_items,
+                "collect_items": collect_items,
             }
         )
 
