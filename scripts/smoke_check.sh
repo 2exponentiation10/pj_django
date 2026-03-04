@@ -3,16 +3,17 @@ set -euo pipefail
 
 WEB_URL="${WEB_URL:-https://satoori.protfolio.store}"
 API_URL="${API_URL:-https://satoori-api.protfolio.store/api}"
+CURL_OPTS=(--fail --show-error --silent --connect-timeout 8 --max-time 25 --retry 2 --retry-delay 2)
 
 echo "[1/4] web health: $WEB_URL"
-curl -fsS -o /dev/null -w "web_status=%{http_code}\n" "$WEB_URL"
+curl "${CURL_OPTS[@]}" -o /dev/null -w "web_status=%{http_code}\n" "$WEB_URL"
 
 echo "[2/4] next chapter"
-curl -fsS "$API_URL/next_chapter/" | head -c 300
+curl "${CURL_OPTS[@]}" "$API_URL/next_chapter/" | head -c 300
 echo
 
 echo "[3/4] sample sentences"
-curl -fsS "$API_URL/chapters/1/sentences/" | head -c 300
+curl "${CURL_OPTS[@]}" "$API_URL/chapters/1/sentences/" | head -c 300
 echo
 
 echo "[4/4] done"
