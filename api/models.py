@@ -159,3 +159,39 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return self.display_name or self.user.username
+
+
+class VisualGenerationJob(models.Model):
+    STATUS_QUEUED = "queued"
+    STATUS_RUNNING = "running"
+    STATUS_SUCCEEDED = "succeeded"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, "queued"),
+        (STATUS_RUNNING, "running"),
+        (STATUS_SUCCEEDED, "succeeded"),
+        (STATUS_FAILED, "failed"),
+    ]
+
+    owner = models.ForeignKey(
+        User,
+        related_name="visual_generation_jobs",
+        on_delete=models.CASCADE,
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    total_items = models.IntegerField(default=0)
+    completed_items = models.IntegerField(default=0)
+    chapters_count = models.IntegerField(default=0)
+    words_count = models.IntegerField(default=0)
+    sentences_count = models.IntegerField(default=0)
+    message = models.CharField(max_length=255, blank=True, default="")
+    error_text = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"VisualJob<{self.id}> {self.status} owner={self.owner_id}"

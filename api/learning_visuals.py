@@ -465,9 +465,26 @@ def _upsert_asset(*, owner, category: str, label: str, key_text: str, image_byte
     return asset
 
 
-def seed_practice_visuals(*, owner) -> dict[str, int]:
+def seed_practice_visuals(*, owner, progress_callback=None) -> dict[str, int]:
     chapters = list(Chapter.objects.filter(owner=owner).order_by("id"))
+    total_items = len(chapters)
+    total_items += sum(chapter.words.count() for chapter in chapters)
+    total_items += sum(chapter.sentences.count() for chapter in chapters)
     chapter_count = word_count = sentence_count = 0
+    completed_items = 0
+
+    if progress_callback:
+        progress_callback(
+            {
+                "status": "running",
+                "message": "학습 시각자료 준비 중",
+                "total_items": total_items,
+                "completed_items": completed_items,
+                "chapters": chapter_count,
+                "words": word_count,
+                "sentences": sentence_count,
+            }
+        )
 
     for chapter in chapters:
         _upsert_asset(
@@ -479,11 +496,22 @@ def seed_practice_visuals(*, owner) -> dict[str, int]:
             chapter=chapter,
         )
         chapter_count += 1
+        completed_items += 1
+        if progress_callback:
+            progress_callback(
+                {
+                    "status": "running",
+                    "message": f"챕터 커버 생성 · {chapter.title}",
+                    "total_items": total_items,
+                    "completed_items": completed_items,
+                    "chapters": chapter_count,
+                    "words": word_count,
+                    "sentences": sentence_count,
+                }
+            )
 
         words = list(chapter.words.all().order_by("id"))
         for word in words:
-            if word.korean_word not in WORD_ICON_MAP:
-                continue
             _upsert_asset(
                 owner=owner,
                 category=MediaAsset.CATEGORY_WORD,
@@ -494,6 +522,19 @@ def seed_practice_visuals(*, owner) -> dict[str, int]:
                 word=word,
             )
             word_count += 1
+            completed_items += 1
+            if progress_callback and (completed_items % 4 == 0 or completed_items == total_items):
+                progress_callback(
+                    {
+                        "status": "running",
+                        "message": f"단어 카드 생성 · {word.korean_word}",
+                        "total_items": total_items,
+                        "completed_items": completed_items,
+                        "chapters": chapter_count,
+                        "words": word_count,
+                        "sentences": sentence_count,
+                    }
+                )
 
         sentences = list(chapter.sentences.all().order_by("id"))
         for sentence in sentences:
@@ -507,8 +548,23 @@ def seed_practice_visuals(*, owner) -> dict[str, int]:
                 sentence=sentence,
             )
             sentence_count += 1
+            completed_items += 1
+            if progress_callback and (completed_items % 4 == 0 or completed_items == total_items):
+                progress_callback(
+                    {
+                        "status": "running",
+                        "message": f"문장 카드 생성 · #{sentence.id}",
+                        "total_items": total_items,
+                        "completed_items": completed_items,
+                        "chapters": chapter_count,
+                        "words": word_count,
+                        "sentences": sentence_count,
+                    }
+                )
 
     return {
+        "total_items": total_items,
+        "completed_items": completed_items,
         "chapters": chapter_count,
         "words": word_count,
         "sentences": sentence_count,

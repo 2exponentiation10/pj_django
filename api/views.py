@@ -6,6 +6,7 @@ import math
 import re
 import secrets
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.parse
@@ -41,8 +42,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from .models import Chapter, MediaAsset, PronunciationAttempt, Sentence, Word
-from .learning_visuals import seed_practice_visuals
+from .models import Chapter, MediaAsset, PronunciationAttempt, Sentence, VisualGenerationJob, Word
 from .serializers import (
     ChapterSerializer,
     MediaAssetSerializer,
@@ -157,6 +157,22 @@ class RegenerateVisualsResponseSerializer(serializers.Serializer):
     sentences = serializers.IntegerField()
 
 
+class VisualGenerationJobSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    status = serializers.CharField()
+    total_items = serializers.IntegerField()
+    completed_items = serializers.IntegerField()
+    progress_ratio = serializers.FloatField()
+    chapters_count = serializers.IntegerField()
+    words_count = serializers.IntegerField()
+    sentences_count = serializers.IntegerField()
+    message = serializers.CharField()
+    error_text = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    started_at = serializers.DateTimeField(allow_null=True)
+    finished_at = serializers.DateTimeField(allow_null=True)
+
+
 class ChatRequestSerializer(serializers.Serializer):
     message = serializers.CharField()
 
@@ -250,6 +266,37 @@ def _is_admin_request(request) -> bool:
     if not provided:
         return False
     return secrets.compare_digest(provided, _configured_admin_pin())
+
+
+def _serialize_visual_job(job: VisualGenerationJob):
+    total_items = max(job.total_items, 0)
+    completed_items = max(job.completed_items, 0)
+    progress_ratio = 0.0 if total_items <= 0 else min(completed_items / total_items, 1.0)
+    return {
+        "id": job.id,
+        "status": job.status,
+        "total_items": total_items,
+        "completed_items": completed_items,
+        "progress_ratio": progress_ratio,
+        "chapters_count": job.chapters_count,
+        "words_count": job.words_count,
+        "sentences_count": job.sentences_count,
+        "message": job.message,
+        "error_text": job.error_text,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+    }
+
+
+def _launch_visual_job(job: VisualGenerationJob):
+    subprocess.Popen(
+        [sys.executable, "manage.py", "run_visual_generation_job", str(job.id)],
+        cwd=str(Path(settings.BASE_DIR)),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 class ChapterViewSet(viewsets.ModelViewSet):
@@ -1719,7 +1766,7 @@ def reset_sentence_pronunciation(request, sentence_id):
     tags=["media-assets"],
     request=None,
     responses={
-        200: RegenerateVisualsResponseSerializer,
+        202: VisualGenerationJobSerializer,
         403: DetailResponseSerializer,
     },
 )
@@ -1729,20 +1776,54 @@ def regenerate_learning_visuals(request):
         return Response({"detail": "Admin PIN is required."}, status=status.HTTP_403_FORBIDDEN)
 
     owner = _get_effective_user(request)
+    existing_job = (
+        VisualGenerationJob.objects.filter(
+            owner=owner,
+            status__in=[
+                VisualGenerationJob.STATUS_QUEUED,
+                VisualGenerationJob.STATUS_RUNNING,
+            ],
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if existing_job is not None:
+        return Response(_serialize_visual_job(existing_job), status=status.HTTP_202_ACCEPTED)
+
+    job = VisualGenerationJob.objects.create(
+        owner=owner,
+        status=VisualGenerationJob.STATUS_QUEUED,
+        message="시각자료 재생성 대기 중입니다.",
+    )
     try:
-        result = seed_practice_visuals(owner=owner)
+        _launch_visual_job(job)
     except Exception as exc:
-        logger.exception("Failed to regenerate learning visuals")
+        logger.exception("Failed to queue learning visuals regeneration")
+        job.status = VisualGenerationJob.STATUS_FAILED
+        job.error_text = str(exc)
+        job.message = "시각자료 재생성 작업을 시작하지 못했습니다."
+        job.save(update_fields=["status", "error_text", "message"])
         return Response(
-            {"detail": f"Failed to regenerate learning visuals: {exc}"},
+            {"detail": f"Failed to queue learning visuals regeneration: {exc}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    return Response(
-        {
-            "status": "ok",
-            "chapters": result["chapters"],
-            "words": result["words"],
-            "sentences": result["sentences"],
-        }
-    )
+    job.refresh_from_db()
+    return Response(_serialize_visual_job(job), status=status.HTTP_202_ACCEPTED)
+
+
+@extend_schema(
+    tags=["media-assets"],
+    request=None,
+    responses={200: VisualGenerationJobSerializer, 403: DetailResponseSerializer, 404: DetailResponseSerializer},
+)
+@api_view(["GET"])
+def latest_learning_visual_job(request):
+    if not _is_admin_request(request):
+        return Response({"detail": "Admin PIN is required."}, status=status.HTTP_403_FORBIDDEN)
+
+    owner = _get_effective_user(request)
+    job = VisualGenerationJob.objects.filter(owner=owner).order_by("-created_at").first()
+    if job is None:
+        return Response({"detail": "No visual regeneration job found."}, status=status.HTTP_404_NOT_FOUND)
+    return Response(_serialize_visual_job(job))
