@@ -107,6 +107,7 @@ CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins.split(",") if 
 # absolute URLs for uploaded assets keep the public https origin.
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+ADMIN_CONSOLE_PIN = os.getenv("ADMIN_CONSOLE_PIN", "1004")
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],

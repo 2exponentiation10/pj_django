@@ -14,6 +14,7 @@ from .views import (
     get_next_chapter,
     get_progress,
     get_review_queue,
+    regenerate_learning_visuals,
     get_saved_sentences,
     get_saved_words,
     mark_sentence_as_called,
@@ -79,6 +80,11 @@ urlpatterns = [
     path("next_chapter/", get_next_chapter, name="next-chapter"),
     path("review_queue/", get_review_queue, name="review-queue"),
     path("media-assets/<int:asset_id>/file/", get_media_asset_file, name="media-asset-file"),
+    path(
+        "admin/regenerate-learning-visuals/",
+        regenerate_learning_visuals,
+        name="admin-regenerate-learning-visuals",
+    ),
     path("chat/", chat_with_gemini, name="chat-with-gemini"),
     path("pronunciation/evaluate/", evaluate_pronunciation, name="evaluate-pronunciation"),
 ]

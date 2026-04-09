@@ -4,6 +4,7 @@ import io
 import logging
 import math
 import re
+import secrets
 import subprocess
 import tempfile
 import urllib.error
@@ -41,6 +42,7 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
 from .models import Chapter, MediaAsset, PronunciationAttempt, Sentence, Word
+from .learning_visuals import seed_practice_visuals
 from .serializers import (
     ChapterSerializer,
     MediaAssetSerializer,
@@ -148,6 +150,13 @@ class ResetSentenceResponseSerializer(serializers.Serializer):
     sentence_id = serializers.IntegerField()
 
 
+class RegenerateVisualsResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    chapters = serializers.IntegerField()
+    words = serializers.IntegerField()
+    sentences = serializers.IntegerField()
+
+
 class ChatRequestSerializer(serializers.Serializer):
     message = serializers.CharField()
 
@@ -230,6 +239,17 @@ def _get_effective_user(request):
 
 def _serializer_context(request):
     return {"request": request} if request is not None else {}
+
+
+def _configured_admin_pin() -> str:
+    return str(getattr(settings, "ADMIN_CONSOLE_PIN", "1004"))
+
+
+def _is_admin_request(request) -> bool:
+    provided = request.headers.get("X-Admin-Pin", "").strip()
+    if not provided:
+        return False
+    return secrets.compare_digest(provided, _configured_admin_pin())
 
 
 class ChapterViewSet(viewsets.ModelViewSet):
@@ -1693,3 +1713,36 @@ def reset_sentence_pronunciation(request, sentence_id):
     sentence.accuracy = 0.0
     sentence.save(update_fields=["accuracy"])
     return Response({"status": "ok", "deleted_attempts": deleted, "sentence_id": sentence.id})
+
+
+@extend_schema(
+    tags=["media-assets"],
+    request=None,
+    responses={
+        200: RegenerateVisualsResponseSerializer,
+        403: DetailResponseSerializer,
+    },
+)
+@api_view(["POST"])
+def regenerate_learning_visuals(request):
+    if not _is_admin_request(request):
+        return Response({"detail": "Admin PIN is required."}, status=status.HTTP_403_FORBIDDEN)
+
+    owner = _get_effective_user(request)
+    try:
+        result = seed_practice_visuals(owner=owner)
+    except Exception as exc:
+        logger.exception("Failed to regenerate learning visuals")
+        return Response(
+            {"detail": f"Failed to regenerate learning visuals: {exc}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(
+        {
+            "status": "ok",
+            "chapters": result["chapters"],
+            "words": result["words"],
+            "sentences": result["sentences"],
+        }
+    )
