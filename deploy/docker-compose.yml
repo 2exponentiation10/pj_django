@@ -1,0 +1,26 @@
+services:
+  api:
+    build: ./pj_django
+    container_name: satoori-api
+    env_file: ./env/api.env
+    restart: unless-stopped
+    expose:
+      - "8000"
+    volumes:
+      - ./pj_django/db.sqlite3:/app/db.sqlite3
+      - ./pj_django/media:/app/media
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: satoori-nginx
+    depends_on:
+      - api
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./pj_flutter_web:/usr/share/nginx/html:ro
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt

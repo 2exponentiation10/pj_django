@@ -1,1 +1,1 @@
-web: gunicorn BUDparty.wsgi
+web: gunicorn BUDparty.wsgi:application

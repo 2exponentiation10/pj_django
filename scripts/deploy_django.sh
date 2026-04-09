@@ -18,11 +18,15 @@ run_docker() {
 }
 
 mkdir -p "$TARGET_DJANGO_DIR"
+mkdir -p "$TARGET_DJANGO_DIR/media"
+touch "$TARGET_DJANGO_DIR/db.sqlite3"
 rsync -az --delete \
   --exclude='.git' \
   --exclude='.github' \
   --exclude='.venv' \
   --exclude='__pycache__' \
+  --exclude='db.sqlite3' \
+  --exclude='media' \
   "$PROJECT_ROOT/" "$TARGET_DJANGO_DIR/"
 
 cd "$DEPLOY_ROOT"
@@ -41,11 +45,23 @@ if [ -f "$TARGET_DJANGO_DIR/fixtures/initial_data.json" ]; then
   if [ "${CHAPTER_COUNT:-0}" = "0" ]; then
     if ! run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py loaddata fixtures/initial_data.json; then
       run_docker compose -f "$COMPOSE_FILE" exec -T api python manage.py shell <<'PY'
+from django.contrib.auth import get_user_model
 from api.models import Chapter, Sentence, Word
 
+User = get_user_model()
+master, _ = User.objects.get_or_create(
+    username="master",
+    defaults={
+        "is_active": True,
+        "is_staff": True,
+        "is_superuser": True,
+        "email": "master@local",
+    },
+)
+
 if Chapter.objects.count() == 0:
-    ch1 = Chapter.objects.create(title="인사와 일상", accuracy=0.0)
-    ch2 = Chapter.objects.create(title="식당과 음식", accuracy=0.0)
+    ch1 = Chapter.objects.create(owner=master, title="인사와 일상", accuracy=0.0)
+    ch2 = Chapter.objects.create(owner=master, title="식당과 음식", accuracy=0.0)
 
     Word.objects.bulk_create([
         Word(chapter=ch1, korean_word="안녕하세요", north_korean_word="안녕하십니까", accuracy=0.0),

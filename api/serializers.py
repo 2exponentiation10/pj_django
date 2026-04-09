@@ -3,7 +3,7 @@ from rest_framework import serializers
 from .models import Chapter, MediaAsset, Sentence, Word
 
 
-def _build_asset_url(request, asset):
+def _build_asset_url(request, asset) -> str:
     if not request or not asset:
         return ""
     return request.build_absolute_uri(f"/api/media-assets/{asset.id}/file/")
@@ -64,11 +64,11 @@ class WordSerializer(serializers.ModelSerializer):
             "image_asset_id",
         ]
 
-    def get_image_url(self, obj):
+    def get_image_url(self, obj) -> str:
         asset = _resolve_word_asset(obj)
         return _build_asset_url(self.context.get("request"), asset)
 
-    def get_image_asset_id(self, obj):
+    def get_image_asset_id(self, obj) -> int | None:
         asset = _resolve_word_asset(obj)
         return asset.id if asset else None
 
@@ -87,7 +87,7 @@ class ChapterSerializer(serializers.ModelSerializer):
             "cover_image_url",
         ]
 
-    def get_cover_image_url(self, obj):
+    def get_cover_image_url(self, obj) -> str:
         asset = (
             MediaAsset.objects.filter(category=MediaAsset.CATEGORY_CHAPTER, chapter_id=obj.id)
             .order_by("-updated_at", "-id")
@@ -117,15 +117,15 @@ class SentenceSerializer(serializers.ModelSerializer):
             "image_asset_id",
         ]
 
-    def get_recognized_text(self, obj):
+    def get_recognized_text(self, obj) -> str:
         # The model currently has no persistent recognized_text column.
         return getattr(obj, "recognized_text", "")
 
-    def get_image_url(self, obj):
+    def get_image_url(self, obj) -> str:
         asset = _resolve_sentence_asset(obj)
         return _build_asset_url(self.context.get("request"), asset)
 
-    def get_image_asset_id(self, obj):
+    def get_image_asset_id(self, obj) -> int | None:
         asset = _resolve_sentence_asset(obj)
         return asset.id if asset else None
 
@@ -149,6 +149,9 @@ class MediaAssetSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
+        extra_kwargs = {
+            "image": {"write_only": True},
+        }
 
-    def get_image_url(self, obj):
+    def get_image_url(self, obj) -> str:
         return _build_asset_url(self.context.get("request"), obj)

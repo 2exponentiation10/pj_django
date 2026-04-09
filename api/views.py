@@ -34,7 +34,8 @@ from django.db.models import Avg
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import FileResponse
-from rest_framework import status, viewsets
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
+from rest_framework import serializers, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
@@ -48,6 +49,160 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class DetailResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+
+
+class StatusResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+
+
+class AccuracyValueSerializer(serializers.Serializer):
+    accuracy = serializers.FloatField()
+
+
+class NextChapterResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+
+
+class ReviewQueueItemSerializer(serializers.Serializer):
+    sentence_id = serializers.IntegerField()
+    chapter_id = serializers.IntegerField()
+    chapter_title = serializers.CharField()
+    difficulty = serializers.CharField()
+    context_tag = serializers.CharField()
+    korean_sentence = serializers.CharField()
+    north_korean_sentence = serializers.CharField()
+    sentence_accuracy_ratio = serializers.FloatField()
+    last_score_percent = serializers.FloatField(allow_null=True)
+    recent_avg_score_percent = serializers.FloatField(allow_null=True)
+    priority_score = serializers.FloatField()
+    reason = serializers.CharField()
+
+
+class ProgressItemSerializer(serializers.Serializer):
+    chapter_id = serializers.IntegerField()
+    chapter_title = serializers.CharField()
+    progress = serializers.FloatField()
+    accuracy = serializers.FloatField()
+    total_words = serializers.IntegerField()
+    called_words = serializers.IntegerField()
+    collect_words = serializers.IntegerField()
+    total_sentences = serializers.IntegerField()
+    called_sentences = serializers.IntegerField()
+    collect_sentences = serializers.IntegerField()
+    total_items = serializers.IntegerField()
+    called_items = serializers.IntegerField()
+    collect_items = serializers.IntegerField()
+
+
+class ProgressResponseSerializer(serializers.Serializer):
+    progress_data = ProgressItemSerializer(many=True)
+    completed_chapters = serializers.IntegerField()
+    overall_progress = serializers.FloatField()
+
+
+class LearningProgressResponseSerializer(serializers.Serializer):
+    progress = serializers.FloatField()
+    words = WordSerializer(many=True)
+    sentences = SentenceSerializer(many=True)
+
+
+class WordUpdateRequestSerializer(serializers.Serializer):
+    is_correct = serializers.BooleanField(required=False)
+    is_collect = serializers.BooleanField(required=False)
+    isCollect = serializers.BooleanField(required=False)
+
+
+class SentenceUpdateRequestSerializer(serializers.Serializer):
+    is_correct = serializers.BooleanField(required=False)
+    is_collect = serializers.BooleanField(required=False)
+    isCollect = serializers.BooleanField(required=False)
+
+
+class SentenceAccuracyRequestSerializer(serializers.Serializer):
+    accuracy = serializers.FloatField(required=False)
+    recognized_text = serializers.CharField(required=False, allow_blank=True)
+
+
+class SentenceWithRecognizedTextSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    chapter = serializers.IntegerField()
+    korean_sentence = serializers.CharField()
+    north_korean_sentence = serializers.CharField()
+    is_called = serializers.BooleanField()
+    is_correct = serializers.BooleanField()
+    is_collect = serializers.BooleanField()
+    accuracy = serializers.FloatField()
+    recognized_text = serializers.CharField()
+    image_url = serializers.CharField(allow_blank=True)
+    image_asset_id = serializers.IntegerField(allow_null=True)
+
+
+class ResetSentenceResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    deleted_attempts = serializers.IntegerField()
+    sentence_id = serializers.IntegerField()
+
+
+class ChatRequestSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+
+class ChatResponseSerializer(serializers.Serializer):
+    reply = serializers.CharField()
+    fallback = serializers.BooleanField(required=False)
+    provider = serializers.CharField(required=False)
+    reason = serializers.CharField(required=False, allow_blank=True)
+    error = serializers.CharField(required=False, allow_blank=True)
+
+
+class PronunciationRequestSerializer(serializers.Serializer):
+    reference_text = serializers.CharField()
+    sentence_id = serializers.IntegerField(required=False)
+    audio = serializers.FileField()
+
+
+class PronunciationEvaluationResponseSerializer(serializers.Serializer):
+    transcript = serializers.CharField()
+    accuracy_ratio = serializers.FloatField()
+    score_percent = serializers.FloatField()
+    char_similarity = serializers.FloatField()
+    token_similarity = serializers.FloatField()
+    text_score = serializers.FloatField()
+    audio_metrics_available = serializers.BooleanField()
+    speed_score = serializers.FloatField(allow_null=True)
+    pitch_score = serializers.FloatField(allow_null=True)
+    volume_score = serializers.FloatField(allow_null=True)
+    audio_duration_sec = serializers.FloatField(allow_null=True)
+    reference_duration_sec = serializers.FloatField(allow_null=True)
+    syllables_per_sec = serializers.FloatField(allow_null=True)
+    pitch_median_hz = serializers.FloatField(allow_null=True)
+    pitch_std_hz = serializers.FloatField(allow_null=True)
+    user_pitch_curve = serializers.ListField(child=serializers.FloatField())
+    user_volume_curve = serializers.ListField(child=serializers.FloatField())
+    reference_pitch_curve = serializers.ListField(child=serializers.FloatField())
+    reference_volume_curve = serializers.ListField(child=serializers.FloatField())
+    pitch_curve_similarity = serializers.FloatField(allow_null=True)
+    volume_curve_similarity = serializers.FloatField(allow_null=True)
+    pitch_verdict = serializers.CharField(allow_null=True)
+    attempt_id = serializers.IntegerField()
+    sentence_attempts_count = serializers.IntegerField(allow_null=True)
+    sentence_best_score = serializers.FloatField(allow_null=True)
+    recent_window_size = serializers.IntegerField()
+    recent_attempt_scores = serializers.ListField(child=serializers.FloatField())
+    recent_avg_score = serializers.FloatField(allow_null=True)
+    recent_score_stddev = serializers.FloatField(allow_null=True)
+    recent_avg_pitch_score = serializers.FloatField(allow_null=True)
+    recent_avg_speed_score = serializers.FloatField(allow_null=True)
+    recent_avg_volume_score = serializers.FloatField(allow_null=True)
+    feedback = serializers.CharField()
+    model = serializers.CharField()
+    score_level = serializers.CharField()
+    score_rule = serializers.JSONField()
 
 
 def _get_or_create_master_user():
@@ -73,6 +228,10 @@ def _get_effective_user(request):
     return _get_or_create_master_user()
 
 
+def _serializer_context(request):
+    return {"request": request} if request is not None else {}
+
+
 class ChapterViewSet(viewsets.ModelViewSet):
     queryset = Chapter.objects.all().order_by("id")
     serializer_class = ChapterSerializer
@@ -84,30 +243,51 @@ class ChapterViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=_get_effective_user(self.request))
 
+    @extend_schema(tags=["chapters"], responses=WordSerializer(many=True))
     @action(detail=True, methods=["get"])
     def words(self, request, pk=None):
         chapter = self.get_object()
-        serializer = WordSerializer(chapter.words.all().order_by("id"), many=True)
+        serializer = WordSerializer(
+            chapter.words.all().order_by("id"),
+            many=True,
+            context=_serializer_context(request),
+        )
         return Response(serializer.data)
 
+    @extend_schema(tags=["chapters"], responses=SentenceSerializer(many=True))
     @action(detail=True, methods=["get"])
     def sentences(self, request, pk=None):
         chapter = self.get_object()
-        serializer = SentenceSerializer(chapter.sentences.all().order_by("id"), many=True)
+        serializer = SentenceSerializer(
+            chapter.sentences.all().order_by("id"),
+            many=True,
+            context=_serializer_context(request),
+        )
         return Response(serializer.data)
 
+    @extend_schema(tags=["chapters"], responses=WordSerializer(many=True))
     @action(detail=True, methods=["get"])
     def incollect_words(self, request, pk=None):
         chapter = self.get_object()
-        serializer = WordSerializer(chapter.words.filter(is_collect=False).order_by("id"), many=True)
+        serializer = WordSerializer(
+            chapter.words.filter(is_collect=False).order_by("id"),
+            many=True,
+            context=_serializer_context(request),
+        )
         return Response(serializer.data)
 
+    @extend_schema(tags=["chapters"], responses=SentenceSerializer(many=True))
     @action(detail=True, methods=["get"])
     def incollect_sentences(self, request, pk=None):
         chapter = self.get_object()
-        serializer = SentenceSerializer(chapter.sentences.filter(is_collect=False).order_by("id"), many=True)
+        serializer = SentenceSerializer(
+            chapter.sentences.filter(is_collect=False).order_by("id"),
+            many=True,
+            context=_serializer_context(request),
+        )
         return Response(serializer.data)
 
+    @extend_schema(tags=["chapters"], responses=AccuracyValueSerializer)
     @action(detail=True, methods=["get"])
     def accuracy(self, request, pk=None):
         chapter = self.get_object()
@@ -125,6 +305,7 @@ class WordViewSet(viewsets.ModelViewSet):
         user = _get_effective_user(self.request)
         return Word.objects.filter(chapter__owner=user).order_by("id")
 
+    @extend_schema(tags=["words"], responses=StatusResponseSerializer)
     @action(detail=True, methods=["post"])
     def save_word(self, request, pk=None):
         word = self.get_object()
@@ -141,6 +322,7 @@ class SentenceViewSet(viewsets.ModelViewSet):
         user = _get_effective_user(self.request)
         return Sentence.objects.filter(chapter__owner=user).order_by("id")
 
+    @extend_schema(tags=["sentences"], responses=StatusResponseSerializer)
     @action(detail=True, methods=["post"])
     def save_sentence(self, request, pk=None):
         sentence = self.get_object()
@@ -166,6 +348,7 @@ class MediaAssetViewSet(viewsets.ModelViewSet):
         serializer.save(owner=_get_effective_user(self.request))
 
 
+@extend_schema(tags=["progress"], responses=ProgressResponseSerializer)
 @api_view(["GET"])
 def get_progress(request):
     user = _get_effective_user(request)
@@ -223,6 +406,13 @@ def get_progress(request):
     )
 
 
+@extend_schema(
+    tags=["chapters"],
+    responses={
+        200: NextChapterResponseSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["GET"])
 def get_next_chapter(request):
     user = _get_effective_user(request)
@@ -242,6 +432,19 @@ def get_next_chapter(request):
     return Response({"id": last.id, "title": last.title})
 
 
+@extend_schema(
+    tags=["review"],
+    parameters=[
+        OpenApiParameter(
+            name="limit",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            description="반환할 복습 후보 개수. 기본 12, 최대 50",
+            required=False,
+        )
+    ],
+    responses=ReviewQueueItemSerializer(many=True),
+)
 @api_view(["GET"])
 def get_review_queue(request):
     user = _get_effective_user(request)
@@ -298,26 +501,38 @@ def get_review_queue(request):
     return Response(candidates[:limit])
 
 
+@extend_schema(tags=["words"], responses=WordSerializer(many=True))
 @api_view(["GET"])
 def get_saved_words(request):
     user = _get_effective_user(request)
     serializer = WordSerializer(
         Word.objects.filter(chapter__owner=user, is_correct=True).order_by("id"),
         many=True,
+        context=_serializer_context(request),
     )
     return Response(serializer.data)
 
 
+@extend_schema(tags=["sentences"], responses=SentenceSerializer(many=True))
 @api_view(["GET"])
 def get_saved_sentences(request):
     user = _get_effective_user(request)
     serializer = SentenceSerializer(
         Sentence.objects.filter(chapter__owner=user, is_correct=True).order_by("id"),
         many=True,
+        context=_serializer_context(request),
     )
     return Response(serializer.data)
 
 
+@extend_schema(
+    tags=["words"],
+    request=WordUpdateRequestSerializer,
+    responses={
+        200: WordSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["POST", "PATCH"])
 def update_word(request, word_id):
     user = _get_effective_user(request)
@@ -336,9 +551,17 @@ def update_word(request, word_id):
         word.is_collect = bool(request.data.get("isCollect"))
 
     word.save()
-    return Response(WordSerializer(word).data)
+    return Response(WordSerializer(word, context=_serializer_context(request)).data)
 
 
+@extend_schema(
+    tags=["words"],
+    request=None,
+    responses={
+        200: StatusResponseSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["POST"])
 def mark_word_as_called(request, word_id):
     user = _get_effective_user(request)
@@ -352,6 +575,14 @@ def mark_word_as_called(request, word_id):
     return Response({"status": "success"})
 
 
+@extend_schema(
+    tags=["sentences"],
+    request=SentenceUpdateRequestSerializer,
+    responses={
+        200: SentenceSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["POST", "PATCH"])
 def update_sentence(request, sentence_id):
     user = _get_effective_user(request)
@@ -369,9 +600,17 @@ def update_sentence(request, sentence_id):
         sentence.is_collect = bool(request.data.get("isCollect"))
 
     sentence.save()
-    return Response(SentenceSerializer(sentence).data)
+    return Response(SentenceSerializer(sentence, context=_serializer_context(request)).data)
 
 
+@extend_schema(
+    tags=["sentences"],
+    request=None,
+    responses={
+        200: StatusResponseSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["POST"])
 def mark_sentence_as_called(request, sentence_id):
     user = _get_effective_user(request)
@@ -385,6 +624,14 @@ def mark_sentence_as_called(request, sentence_id):
     return Response({"status": "success"})
 
 
+@extend_schema(
+    tags=["sentences"],
+    request=SentenceAccuracyRequestSerializer,
+    responses={
+        200: SentenceSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["PUT", "POST"])
 def update_sentence_accuracy(request, sentence_id):
     user = _get_effective_user(request)
@@ -396,9 +643,17 @@ def update_sentence_accuracy(request, sentence_id):
     accuracy = request.data.get("accuracy", sentence.accuracy)
     sentence.accuracy = float(accuracy)
     sentence.save(update_fields=["accuracy"])
-    return Response(SentenceSerializer(sentence).data)
+    return Response(SentenceSerializer(sentence, context=_serializer_context(request)).data)
 
 
+@extend_schema(
+    tags=["sentences"],
+    request=SentenceAccuracyRequestSerializer,
+    responses={
+        200: SentenceWithRecognizedTextSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["PUT"])
 def update_sentence_accuracy_and_text(request, sentence_id):
     user = _get_effective_user(request)
@@ -413,11 +668,18 @@ def update_sentence_accuracy_and_text(request, sentence_id):
     sentence.accuracy = float(accuracy)
     sentence.save(update_fields=["accuracy"])
 
-    data = SentenceSerializer(sentence).data
+    data = SentenceSerializer(sentence, context=_serializer_context(request)).data
     data["recognized_text"] = recognized_text
     return Response(data)
 
 
+@extend_schema(
+    tags=["chapters"],
+    responses={
+        200: LearningProgressResponseSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["GET"])
 def get_chapter_learning_progress(request, chapter_id):
     user = _get_effective_user(request)
@@ -440,17 +702,30 @@ def get_chapter_learning_progress(request, chapter_id):
     return Response(
         {
             "progress": (word_progress + sentence_progress) / 2,
-            "words": WordSerializer(words, many=True).data,
-            "sentences": SentenceSerializer(sentences, many=True).data,
+            "words": WordSerializer(
+                words,
+                many=True,
+                context=_serializer_context(request),
+            ).data,
+            "sentences": SentenceSerializer(
+                sentences,
+                many=True,
+                context=_serializer_context(request),
+            ).data,
         }
     )
 
 
+@extend_schema(tags=["chapters"], responses=SentenceSerializer(many=True))
 @api_view(["GET"])
 def get_chapter_evaluation_results(request, chapter_id):
     user = _get_effective_user(request)
     sentences = Sentence.objects.filter(chapter_id=chapter_id, chapter__owner=user).order_by("id")
-    serializer = SentenceSerializer(sentences, many=True)
+    serializer = SentenceSerializer(
+        sentences,
+        many=True,
+        context=_serializer_context(request),
+    )
     return Response(serializer.data)
 
 
@@ -528,6 +803,18 @@ def _chat_with_openai(user_message):
     return answer
 
 
+@extend_schema(
+    tags=["chat"],
+    request=ChatRequestSerializer,
+    responses={
+        200: ChatResponseSerializer,
+        400: DetailResponseSerializer,
+        502: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Gemini 응답이 비어 있거나 비정상일 때의 raw payload",
+        ),
+    },
+)
 @api_view(["POST"])
 def chat_with_gemini(request):
     user_message = (request.data.get("message") or "").strip()
@@ -1150,6 +1437,16 @@ def _transcribe_with_gemini(audio_bytes, mime_type, model_name, api_key):
     return transcript
 
 
+@extend_schema(
+    tags=["pronunciation"],
+    request=PronunciationRequestSerializer,
+    responses={
+        200: PronunciationEvaluationResponseSerializer,
+        400: DetailResponseSerializer,
+        404: DetailResponseSerializer,
+        500: DetailResponseSerializer,
+    },
+)
 @api_view(["POST"])
 def evaluate_pronunciation(request):
     user = _get_effective_user(request)
@@ -1353,6 +1650,13 @@ def evaluate_pronunciation(request):
     )
 
 
+@extend_schema(
+    tags=["media-assets"],
+    responses={
+        200: OpenApiResponse(response=OpenApiTypes.BINARY, description="업로드된 이미지 바이너리"),
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["GET"])
 def get_media_asset_file(request, asset_id):
     user = _get_effective_user(request)
@@ -1369,6 +1673,14 @@ def get_media_asset_file(request, asset_id):
     return FileResponse(asset.image, as_attachment=False, filename=file_name)
 
 
+@extend_schema(
+    tags=["sentences"],
+    request=None,
+    responses={
+        200: ResetSentenceResponseSerializer,
+        404: DetailResponseSerializer,
+    },
+)
 @api_view(["POST"])
 def reset_sentence_pronunciation(request, sentence_id):
     user = _get_effective_user(request)
