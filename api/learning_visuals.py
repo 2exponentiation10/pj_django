@@ -135,12 +135,12 @@ CHAPTER_THEME = {
 }
 
 WORD_QUERY_MAP = {
-    '감사합니다': ['people bowing thank you', 'people greeting politely'],
-    '실례합니다': ['person asking excuse indoors', 'people meeting in hallway'],
-    '괜찮아요': ['smiling people conversation', 'friend reassuring another person'],
-    '조금만 기다려 주세요': ['people waiting at counter', 'waiting line indoors'],
-    '처음 뵙겠습니다': ['business handshake first meeting', 'people greeting each other formally'],
-    '잘 부탁드립니다': ['handshake business meeting', 'team greeting office'],
+    '감사합니다': ['modern korean people greeting politely', 'office thank you gesture people'],
+    '실례합니다': ['person asking excuse in hallway', 'office corridor polite conversation'],
+    '괜찮아요': ['friend comforting another person indoors', 'smiling people reassuring conversation'],
+    '조금만 기다려 주세요': ['service desk waiting line', 'customer waiting politely counter'],
+    '처음 뵙겠습니다': ['formal business first meeting korea', 'modern office handshake greeting'],
+    '잘 부탁드립니다': ['team greeting office korea', 'business handshake formal greeting'],
     '전화드릴게요': ['person making phone call office', 'smartphone call close up'],
     '확인해 볼게요': ['person checking document office', 'checking smartphone screen'],
     '포장': ['takeout food counter', 'food takeaway package'],
@@ -202,7 +202,7 @@ WORD_QUERY_MAP = {
 }
 
 SENTENCE_QUERY_RULES = [
-    (('안녕하세요', '처음 뵙', '감사합니다', '도와드릴게요'), ['people greeting in office', 'people talking politely indoors']),
+    (('안녕하세요', '처음 뵙', '감사합니다', '도와드릴게요'), ['modern korean office greeting', 'people talking politely indoors']),
     (('기다려', '잠시만'), ['waiting line indoors', 'people waiting at service desk']),
     (('확인', '설명'), ['person checking document office', 'consultation at desk']),
     (('연락', '전화'), ['person making phone call office', 'smartphone call close up']),
