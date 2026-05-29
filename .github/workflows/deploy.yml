@@ -71,6 +71,9 @@ jobs:
       - name: Deploy Django
         run: bash scripts/deploy_django.sh
 
+      - name: Renew portfolio TLS if needed
+        run: bash scripts/renew_portfolio_tls.sh
+
       - name: Smoke check
         env:
           WEB_URL: https://satoori.protfolio.store

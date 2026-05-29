@@ -7,7 +7,12 @@ TARGET_DJANGO_DIR="$DEPLOY_ROOT/pj_django"
 COMPOSE_FILE="$DEPLOY_ROOT/docker-compose.yml"
 DOCKER_SUDO="${DOCKER_SUDO:-false}"
 TARGET_NGINX_CONF="$DEPLOY_ROOT/nginx/conf.d/default.conf"
-SOURCE_NGINX_CONF="$PROJECT_ROOT/deploy/nginx/https.conf"
+SOURCE_NGINX_CONF="$PROJECT_ROOT/deploy/nginx/portfolio-central.conf"
+LEGACY_NGINX_CONF="$PROJECT_ROOT/deploy/nginx/https.conf"
+
+if [ ! -f "$SOURCE_NGINX_CONF" ] && [ -f "$LEGACY_NGINX_CONF" ]; then
+  SOURCE_NGINX_CONF="$LEGACY_NGINX_CONF"
+fi
 
 run_docker() {
   if [ "$DOCKER_SUDO" = "true" ]; then
