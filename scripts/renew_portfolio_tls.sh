@@ -6,6 +6,7 @@ COMPOSE_FILE="$DEPLOY_ROOT/docker-compose.yml"
 CERTBOT_CONF="$DEPLOY_ROOT/certbot/conf"
 CERTBOT_WWW="$DEPLOY_ROOT/certbot/www"
 CERT_DOMAINS=("satoori.protfolio.store" "satoori-api.protfolio.store")
+CERT_NAME="${CERT_NAME:-${CERT_DOMAINS[0]}}"
 CERT_EMAIL="${CERTBOT_EMAIL:-tmdduf54@gachon.ac.kr}"
 DOCKER_SUDO="${DOCKER_SUDO:-false}"
 CHECK_WINDOW_SECONDS="${CHECK_WINDOW_SECONDS:-1209600}" # 14 days
@@ -19,17 +20,12 @@ run_docker() {
 }
 
 needs_renewal="false"
-for domain in "${CERT_DOMAINS[@]}"; do
-  cert_path="$CERTBOT_CONF/live/$domain/fullchain.pem"
-  if [ ! -f "$cert_path" ]; then
-    needs_renewal="true"
-    break
-  fi
-  if ! openssl x509 -checkend "$CHECK_WINDOW_SECONDS" -noout -in "$cert_path" >/dev/null 2>&1; then
-    needs_renewal="true"
-    break
-  fi
-done
+cert_path="$CERTBOT_CONF/live/$CERT_NAME/fullchain.pem"
+if [ ! -f "$cert_path" ]; then
+  needs_renewal="true"
+elif ! openssl x509 -checkend "$CHECK_WINDOW_SECONDS" -noout -in "$cert_path" >/dev/null 2>&1; then
+  needs_renewal="true"
+fi
 
 if [ "$needs_renewal" != "true" ]; then
   echo "TLS certificates are still valid beyond the renewal window. Skipping renewal."
@@ -49,10 +45,13 @@ run_docker run --rm -p 80:80 \
   -v "$CERTBOT_CONF:/etc/letsencrypt" \
   -v "$CERTBOT_WWW:/var/www/certbot" \
   certbot/certbot certonly --standalone \
+  --cert-name "$CERT_NAME" \
   "${domain_args[@]}" \
   --email "$CERT_EMAIL" \
   --agree-tos \
-  --no-eff-email
+  --no-eff-email \
+  --non-interactive \
+  --keep-until-expiring
 
 echo "Starting nginx after certificate renewal."
 run_docker compose -f "$COMPOSE_FILE" up -d nginx
