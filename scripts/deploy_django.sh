@@ -22,10 +22,27 @@ run_docker() {
   fi
 }
 
+run_predeploy_backup() {
+  local backup_script="${PORTFOLIO_BACKUP_SCRIPT:-/home/lsy/bin/portfolio_backup.sh}"
+  if [ "${SKIP_PORTFOLIO_BACKUP:-false}" = "true" ]; then
+    echo "[deploy] skip portfolio backup"
+    return 0
+  fi
+  if [ ! -x "$backup_script" ]; then
+    echo "::error::Portfolio backup script is missing or not executable: $backup_script"
+    echo "Set SKIP_PORTFOLIO_BACKUP=true only for non-production dry runs."
+    exit 1
+  fi
+  echo "[deploy] pre-deploy backup: satoori"
+  "$backup_script" satoori
+}
+
+run_predeploy_backup
+
 mkdir -p "$TARGET_DJANGO_DIR"
 mkdir -p "$TARGET_DJANGO_DIR/media"
 touch "$TARGET_DJANGO_DIR/db.sqlite3"
-rsync -az --delete \
+rsync -az --delete --no-owner --no-group \
   --exclude='.git' \
   --exclude='.github' \
   --exclude='.venv' \
