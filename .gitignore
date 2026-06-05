@@ -1,3 +1,11 @@
 .env
 media/
 staticfiles/
+
+# Local dev and IDE files
+scripts/dev_run.sh
+scripts/dev_setup.sh
+.dockerignore
+.idea/
+**/__pycache__/
+*.pyc
